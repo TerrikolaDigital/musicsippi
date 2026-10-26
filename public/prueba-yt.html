@@ -1,0 +1,200 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Diagnóstico YouTube</title>
+<style>
+  body { font: 15px/1.5 system-ui, sans-serif; background:#12121c; color:#eee; margin:0; padding:16px; }
+  h1 { font-size:17px; margin:0 0 12px; }
+  #reproductor { width:100%; max-width:420px; aspect-ratio:16/9; background:#000; }
+  button { font-size:17px; padding:12px 20px; margin:8px 8px 0 0; border-radius:8px;
+           border:1px solid #555; background:#2a2a3a; color:#eee; }
+  #estado { margin-top:14px; padding:12px; background:#1c1c2a; border-radius:8px;
+            font-family:ui-monospace, monospace; font-size:13px; white-space:pre-wrap; }
+  .ok { color:#6ee7a8; } .mal { color:#ff8080; }
+</style>
+</head>
+<body>
+<h1>Diagnóstico de reproducción — YouTube</h1>
+
+<!-- Embed desnudo, sin nada de Musicsippi: si esto tampoco suena, el problema
+     es del dispositivo/navegador y no de la app. -->
+<div id="reproductor"></div>
+
+<button id="btnPlay">▶ Reproducir</button>
+<button id="btnPausa">❚❚ Pausa</button>
+<button id="btnCargar">↺ Cargar otro video</button>
+
+<!-- Los dos de abajo replican lo que hace Musicsippi: el toque NO carga el
+     video de una, primero espera (la app espera a que /api/resolver conteste)
+     y recién despues llama a loadVideoById. Si estos fallan y el de arriba
+     funciona, la causa es la ventana de activacion de Chrome en Android. -->
+<button id="btnEspera">🐢 Como la app: esperar 6s y cargar</button>
+<button id="btnResolver">🌐 Como la app: resolver de verdad y cargar</button>
+
+<div id="estado">iniciando…</div>
+
+<hr style="margin:22px 0;border:0;border-top:1px solid #333">
+
+<!-- PRUEBA B — la que decide la arquitectura.
+     La de arriba usa el iframe de YouTube, que es un elemento de VÍDEO: los
+     navegadores móviles lo pausan al ocultarse. Esta usa un <audio> de verdad,
+     que en teoría sigue sonando en segundo plano. Si esta sobrevive al cambio
+     de app y la de arriba no, el problema no es "el navegador no puede", sino
+     "YouTube embebido no puede" — y eso cambia por completo qué hay que
+     construir. El tono se genera acá mismo para no depender de ningún archivo. -->
+<h1 style="font-size:16px">Prueba B — audio real (no vídeo)</h1>
+<button id="btnAudio">▶ Reproducir tono de 5 min</button>
+<button id="btnAudioPausa">❚❚ Pausa</button>
+<div id="estadoAudio">sin iniciar</div>
+
+<script>
+const salida = document.getElementById('estado');
+const nombres = {'-1':'SIN_INICIAR', 0:'TERMINADO', 1:'REPRODUCIENDO', 2:'PAUSADO', 3:'BUFFERING', 5:'CUEADO'};
+let player = null;
+let ultimoError = 'ninguno';
+let eventos = [];
+
+function registrar(t) {
+  eventos.push(t);
+  if (eventos.length > 8) eventos.shift();
+}
+
+function pintar() {
+  let estado = '(sin player)', video = '-', t = '-', dur = '-', vol = '-', mute = '-';
+  try {
+    if (player && player.getPlayerState) {
+      const s = player.getPlayerState();
+      estado = (nombres[s] ?? s) + ' (' + s + ')';
+      video = player.getVideoData?.().video_id || '(ninguno)';
+      t = (player.getCurrentTime?.() ?? 0).toFixed(1);
+      dur = (player.getDuration?.() ?? 0).toFixed(1);
+      vol = player.getVolume?.();
+      mute = player.isMuted?.();
+    }
+  } catch (e) { estado = 'ERROR leyendo: ' + e.message; }
+
+  const avanza = Number(t) > 0;
+  salida.innerHTML =
+    'estado:    ' + estado + '\n' +
+    'video:     ' + video + '\n' +
+    'tiempo:    <span class="' + (avanza ? 'ok' : 'mal') + '">' + t + '</span> / ' + dur + '\n' +
+    'volumen:   ' + vol + (mute ? '  (SILENCIADO)' : '') + '\n' +
+    'error:     <span class="' + (ultimoError === 'ninguno' ? 'ok' : 'mal') + '">' + ultimoError + '</span>\n' +
+    'visible:   ' + document.visibilityState + '\n' +
+    'ua:        ' + navigator.userAgent.slice(0, 90) + '\n' +
+    'eventos:   ' + eventos.join(' → ');
+}
+setInterval(pintar, 500);
+
+window.onYouTubeIframeAPIReady = function () {
+  registrar('api-lista');
+  player = new YT.Player('reproductor', {
+    height: '100%', width: '100%',
+    videoId: 'LOLE1YE_oFQ',
+    playerVars: { autoplay: 0, controls: 1, rel: 0, playsinline: 1 },
+    events: {
+      onReady: () => registrar('onReady'),
+      onStateChange: (e) => registrar('estado:' + (nombres[e.data] ?? e.data)),
+      onError: (e) => { ultimoError = 'código ' + e.data; registrar('onError:' + e.data); },
+    },
+  });
+};
+
+document.getElementById('btnPlay').onclick = () => { registrar('click-play'); player?.playVideo?.(); };
+document.getElementById('btnPausa').onclick = () => { registrar('click-pausa'); player?.pauseVideo?.(); };
+// Ojo: hay videos que prohiben el embebido (onError 150). Si se usa uno de
+// esos como prueba, el fallo es del video y no dice nada del dispositivo.
+document.getElementById('btnCargar').onclick = () => {
+  registrar('click-cargar');
+  ultimoError = 'ninguno';
+  player?.loadVideoById?.({ videoId: '5abamRO41fE' });
+};
+
+// Replica exacta de la app: el toque NO carga el video; primero se espera y
+// recien despues se llama a loadVideoById. Si esto no arranca y el boton
+// "Reproducir" si, la causa es la ventana de activacion de Chrome Android.
+document.getElementById('btnEspera').onclick = async () => {
+  registrar('click-espera');
+  ultimoError = 'ninguno';
+  await new Promise((r) => setTimeout(r, 6000));
+  registrar('cargando-tras-6s');
+  player?.loadVideoById?.({ videoId: 'LOLE1YE_oFQ' });
+};
+
+// La misma espera, pero con el viaje de red real que hace la app.
+document.getElementById('btnResolver').onclick = async () => {
+  registrar('click-resolver');
+  ultimoError = 'ninguno';
+  try {
+    const r = await fetch('/api/resolver?q=' + encodeURIComponent('Madonna Frozen') + '&trackId=diag-' + Date.now());
+    const j = await r.json();
+    registrar('resuelto:' + (j.videoId || JSON.stringify(j).slice(0, 40)));
+    if (j.videoId) player?.loadVideoById?.({ videoId: j.videoId });
+  } catch (e) {
+    registrar('fallo-resolver:' + e.message);
+  }
+};
+
+// ---- Prueba B: un <audio> real ----------------------------------------
+// Se genera un WAV en memoria (tono suave, 5 minutos) para no depender de
+// ningún archivo ni de la red: lo que se mide es la política del navegador
+// sobre el audio en segundo plano, nada más.
+function generarWavTono(segundos, hz) {
+  const tasa = 8000; // suficiente para un tono, y mantiene el blob chico
+  const n = tasa * segundos;
+  const buf = new ArrayBuffer(44 + n * 2);
+  const v = new DataView(buf);
+  const txt = (pos, s) => [...s].forEach((c, i) => v.setUint8(pos + i, c.charCodeAt(0)));
+  txt(0, 'RIFF'); v.setUint32(4, 36 + n * 2, true); txt(8, 'WAVEfmt ');
+  v.setUint32(16, 16, true); v.setUint16(20, 1, true); v.setUint16(22, 1, true);
+  v.setUint32(24, tasa, true); v.setUint32(28, tasa * 2, true);
+  v.setUint16(32, 2, true); v.setUint16(34, 16, true);
+  txt(36, 'data'); v.setUint32(40, n * 2, true);
+  for (let i = 0; i < n; i++) {
+    // Amplitud baja: es una prueba, no hace falta que moleste.
+    v.setInt16(44 + i * 2, Math.sin((2 * Math.PI * hz * i) / tasa) * 6000, true);
+  }
+  return URL.createObjectURL(new Blob([buf], { type: 'audio/wav' }));
+}
+
+const audio = new Audio(generarWavTono(300, 440));
+audio.loop = true;
+const salidaAudio = document.getElementById('estadoAudio');
+
+setInterval(() => {
+  salidaAudio.innerHTML =
+    'estado:  ' + (audio.paused ? '<span class="mal">PAUSADO</span>' : '<span class="ok">SONANDO</span>') +
+    '\ntiempo:  <span class="' + (audio.currentTime > 0 ? 'ok' : 'mal') + '">' +
+    audio.currentTime.toFixed(1) + '</span> s' +
+    '\nvisible: ' + document.visibilityState;
+}, 500);
+salidaAudio.style.whiteSpace = 'pre-wrap';
+salidaAudio.style.fontFamily = 'ui-monospace, monospace';
+salidaAudio.style.marginTop = '10px';
+
+document.getElementById('btnAudio').onclick = async () => {
+  try {
+    await audio.play();
+    // Los controles de la pantalla de bloqueo salen de acá. Sin esto el audio
+    // suena igual, pero sin nada con qué manejarlo desde fuera de la app.
+    if ('mediaSession' in navigator) {
+      navigator.mediaSession.metadata = new MediaMetadata({
+        title: 'Tono de prueba', artist: 'Musicsippi', album: 'Diagnóstico',
+      });
+      navigator.mediaSession.setActionHandler('pause', () => audio.pause());
+      navigator.mediaSession.setActionHandler('play', () => audio.play());
+    }
+  } catch (e) {
+    salidaAudio.textContent = 'no arrancó: ' + e.message;
+  }
+};
+document.getElementById('btnAudioPausa').onclick = () => audio.pause();
+
+const s = document.createElement('script');
+s.src = 'https://www.youtube.com/iframe_api';
+document.head.appendChild(s);
+</script>
+</body>
+</html>

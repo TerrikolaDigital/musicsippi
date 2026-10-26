@@ -1,0 +1,86 @@
+/* Interruptor «Se rellena sola» del ⋯ de un mood y pantalla «Reorganizar en moods». */
+.hoja .hoja-auto {
+  padding: 8px 4px 4px;
+}
+
+.hoja .hoja-auto-fila {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-height: 48px;
+}
+
+.hoja .hoja-auto small {
+  display: block;
+  opacity: 0.7;
+  line-height: 1.35;
+}
+
+.reorg-grupo {
+  margin: 12px 0 4px;
+  font-weight: 600;
+}
+
+.reorg-lista {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 4px 16px;
+}
+
+.reorg-lista li {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  min-height: 28px;
+}
+
+.reorg-lista li span:last-child {
+  opacity: 0.7;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Ajustes › Revisar moods: una fila por canción con su botón «Devolver». */
+.revisar-lista {
+  list-style: none;
+  margin: 6px 0 0;
+  padding: 0;
+}
+
+.revisar-lista li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-height: 56px;
+  padding: 6px 0;
+}
+
+.revisar-lista li.devuelta {
+  opacity: 0.55;
+}
+
+.revisar-texto {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.revisar-texto > span,
+.revisar-texto > small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.revisar-texto small {
+  opacity: 0.7;
+}
+
+.revisar-hecho {
+  opacity: 0.7;
+  font-size: 0.85em;
+}

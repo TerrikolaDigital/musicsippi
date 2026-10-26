@@ -1,0 +1,267 @@
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="utf-8" />
+    <title>Musicsippi</title>
+    <style>
+      /* Identidad v4 (maqueta movil-v4-identidad). Los tokens se repiten acá
+         (en vez de importar la hoja de la app) a propósito: esta ventana carga
+         sola, sin React ni el bundle, y tiene que pintarse al instante al
+         minimizar. */
+      :root {
+        --fondo: #12132a;
+        --agua-media: #1a1c38;
+        --texto: #f4f1fb;
+        --tenue: #aaa7c6;
+        --rosa-claro: #ff85b0;
+        --sippi: linear-gradient(100deg, #ff4d8d 0%, #c64ff0 52%, #7c5cff 100%);
+        --brillo-sippi: 0 10px 34px -8px rgb(255 77 141 / 0.55), 0 6px 26px -10px rgb(124 92 255 / 0.6);
+        --ease-salida: cubic-bezier(0.23, 1, 0.32, 1);
+        --ease-mover: cubic-bezier(0.77, 0, 0.175, 1);
+        --tinte: #3a3d6b;
+        --modo: #aaa7c6;
+      }
+      * { box-sizing: border-box; }
+      /* El redondeo de las esquinas lo hace `roundedCorners` en
+         electron/main.cjs (DWM): sin GPU Chromium no compone transparencia
+         real, así que la ventana es opaca y sin border-radius propio. */
+      html, body { height: 100%; margin: 0; background: var(--fondo); }
+      body {
+        position: relative;
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        padding: 0 8px 0 12px;
+        color: var(--texto);
+        font-family: 'Inter', system-ui, sans-serif;
+        font-size: 13px;
+        overflow: hidden;
+        background:
+          radial-gradient(80% 160% at 0% 50%, color-mix(in srgb, var(--tinte) 45%, transparent), transparent 70%),
+          var(--fondo);
+        box-shadow: 0 0 0 1px rgb(255 255 255 / 0.09) inset;
+        /* La ventana no tiene marco: se arrastra desde su propio fondo. */
+        -webkit-app-region: drag;
+        user-select: none;
+      }
+      /* Todo lo clickeable sale de la zona de arrastre, o el clic se lo come
+         el gesto de mover la ventana. */
+      button { -webkit-app-region: no-drag; }
+      svg.i { width: 18px; height: 18px; fill: currentColor; stroke: none; flex: none; }
+
+      #portada-envoltorio { position: relative; flex-shrink: 0; width: 54px; height: 54px; }
+      #portada {
+        width: 54px;
+        height: 54px;
+        display: block;
+        border-radius: 10px;
+        background: var(--agua-media);
+        object-fit: cover;
+        box-shadow: 0 6px 14px -6px rgb(0 0 0 / 0.8), 0 0 0 1px rgb(255 255 255 / 0.1) inset;
+      }
+      /* Insignia de marca sobre la esquina de la carátula: siempre visible. */
+      #insignia {
+        position: absolute;
+        right: -5px;
+        bottom: -5px;
+        width: 20px;
+        height: 20px;
+        border-radius: 7px;
+        display: grid;
+        place-items: center;
+        background: var(--sippi);
+        box-shadow: 0 0 0 2px var(--fondo);
+        color: #fff;
+      }
+      #insignia svg { width: 12px; height: 12px; fill: none; stroke: currentColor; stroke-width: 2.4; stroke-linecap: round; }
+
+      #texto { flex: 1; min-width: 0; line-height: 1.3; }
+      #titulo, #artista, #modo {
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+      #titulo { font-weight: 600; font-size: 13.5px; }
+      #artista { color: var(--tenue); font-size: 12px; }
+      #modo { display: flex; align-items: center; gap: 6px; font-size: 11.5px; color: var(--modo); }
+      #modo[hidden] { display: none; }
+      #modo i { width: 6px; height: 6px; border-radius: 50%; background: currentColor; flex: none; }
+      #modo span { overflow: hidden; text-overflow: ellipsis; }
+
+      #controles { display: flex; align-items: center; gap: 2px; flex-shrink: 0; }
+      #controles button {
+        width: 40px;
+        height: 40px;
+        display: grid;
+        place-items: center;
+        background: none;
+        border: 0;
+        border-radius: 50%;
+        color: var(--tenue);
+        cursor: pointer;
+        padding: 0;
+        transition: background-color 140ms ease, color 140ms ease, transform 120ms var(--ease-salida);
+      }
+      #controles button:hover { color: var(--texto); background: rgb(255 255 255 / 0.1); }
+      #controles button:active { transform: scale(0.92); }
+      #controles button:focus-visible { outline: 2px solid var(--rosa-claro); outline-offset: 2px; }
+      #controles button:disabled { opacity: 0.35; cursor: default; pointer-events: none; }
+      #controles #play { width: 44px; height: 44px; background: #fff; color: #14152b; margin: 0 2px; }
+      #controles #play svg { width: 20px; height: 20px; }
+      #controles #play:hover { background: #fff; box-shadow: 0 0 0 4px rgb(255 255 255 / 0.14), var(--brillo-sippi); }
+      #controles #play:focus-visible { outline-offset: 3px; }
+      #controles #volver { width: 36px; height: 36px; opacity: 0.55; }
+      #controles #volver svg { fill: none; stroke: currentColor; stroke-width: 1.9; stroke-linecap: round; stroke-linejoin: round; }
+      #controles #volver:hover, #controles #volver:focus-visible { opacity: 1; }
+      body:hover #controles #volver { opacity: 1; }
+
+      /* Ola de progreso de 2 px al pie. El único elemento animado es #ola-mueve
+         (un transform, desde JS a <=30 fps); la amplitud cambia solo al pausar. */
+      #ola { position: absolute; left: 0; right: 0; bottom: 0; width: 100%; height: 8px; pointer-events: none; }
+      #ola-amp { transform-box: fill-box; transform-origin: center; transition: transform 420ms var(--ease-mover); }
+      body.pausado #ola-amp { transform: scaleY(0.08); }
+      body.vacia #ola { display: none; }
+      body.vacia { background: var(--fondo); }
+
+      @media (prefers-reduced-motion: reduce) {
+        #controles button, #ola-amp { transition: none; }
+        #controles button:active { transform: none; }
+      }
+    </style>
+  </head>
+  <body class="vacia pausado">
+    <svg width="0" height="0" style="position:absolute" aria-hidden="true" focusable="false">
+      <defs>
+        <linearGradient id="g-sippi" x1="0" x2="1" y1="0" y2="0">
+          <stop offset="0" stop-color="#ff4d8d" /><stop offset=".55" stop-color="#c64ff0" /><stop offset="1" stop-color="#7c5cff" />
+        </linearGradient>
+        <clipPath id="ola-recorte"><rect id="ola-rect" x="0" y="0" width="0" height="8" /></clipPath>
+      </defs>
+      <symbol id="i-play" viewBox="0 0 24 24"><path d="M8 5.6v12.8a1 1 0 0 0 1.5.87l10.4-6.4a1 1 0 0 0 0-1.74L9.5 4.73A1 1 0 0 0 8 5.6z" /></symbol>
+      <symbol id="i-pausa" viewBox="0 0 24 24"><rect x="6.5" y="5" width="4" height="14" rx="1.3" /><rect x="13.5" y="5" width="4" height="14" rx="1.3" /></symbol>
+      <symbol id="i-sig" viewBox="0 0 24 24"><path d="M5.5 6.6v10.8a.9.9 0 0 0 1.4.75l8-5.4a.9.9 0 0 0 0-1.5l-8-5.4a.9.9 0 0 0-1.4.75z" /><rect x="16.5" y="5.5" width="2.6" height="13" rx="1.2" /></symbol>
+      <symbol id="i-ant" viewBox="0 0 24 24"><path d="M18.5 6.6v10.8a.9.9 0 0 1-1.4.75l-8-5.4a.9.9 0 0 1 0-1.5l8-5.4a.9.9 0 0 1 1.4.75z" /><rect x="4.9" y="5.5" width="2.6" height="13" rx="1.2" /></symbol>
+      <symbol id="i-volver" viewBox="0 0 24 24"><path d="M14 4.5h5.5V10M19.5 4.5 12.5 11.5M10 5H6.5A2 2 0 0 0 4.5 7v10.5a2 2 0 0 0 2 2H17a2 2 0 0 0 2-2V14" /></symbol>
+    </svg>
+
+    <div id="portada-envoltorio">
+      <img id="portada" alt="" />
+      <span id="insignia" aria-hidden="true">
+        <svg viewBox="0 0 24 24"><path d="M3 7.5c3-2.6 6 2.6 9 0s6-2.6 9 0M3 12.5c3-2.6 6 2.6 9 0s6-2.6 9 0M3 17.5c3-2.6 6 2.6 9 0s6-2.6 9 0" /></svg>
+      </span>
+    </div>
+    <div id="texto">
+      <div id="titulo">Nada sonando</div>
+      <div id="artista">Abre la app para elegir</div>
+      <div id="modo" hidden><i></i><span></span></div>
+    </div>
+    <div id="controles">
+      <button id="anterior" title="Anterior" aria-label="Anterior" disabled><svg class="i"><use href="#i-ant" /></svg></button>
+      <button id="play" title="Reproducir o pausar" aria-label="Reproducir"><svg class="i"><use id="play-uso" href="#i-play" /></svg></button>
+      <button id="siguiente" title="Siguiente" aria-label="Siguiente" disabled><svg class="i"><use href="#i-sig" /></svg></button>
+      <button id="volver" title="Volver a Musicsippi" aria-label="Volver a Musicsippi"><svg class="i"><use href="#i-volver" /></svg></button>
+    </div>
+    <svg id="ola" viewBox="0 0 380 8" preserveAspectRatio="none" aria-hidden="true">
+      <line id="ola-resto" x1="0" y1="5" x2="380" y2="5" stroke="rgb(255 255 255 / .14)" stroke-width="2" />
+      <g clip-path="url(#ola-recorte)">
+        <g id="ola-amp"><g id="ola-mueve"><path id="ola-path" fill="none" stroke="url(#g-sippi)" stroke-width="2.2" stroke-linecap="round" /></g></g>
+      </g>
+    </svg>
+
+    <script>
+      // window.musicsippi lo expone electron/preload.cjs. Si esta página se
+      // abriera en un navegador normal, no hay puente y los botones no hacen nada.
+      const puente = window.musicsippi ?? {};
+      const $ = (id) => document.getElementById(id);
+
+      const ANCHO = 380;
+      const LO = 14; // longitud de onda (px)
+      const CORRIENTE_MS = 1400; // una longitud de onda por vuelta
+      const FPS_MAX = 30;
+
+      // Misma geometría que la maqueta: ondas "Q + T" de longitud LO.
+      function onda(ancho, y, amp, lo) {
+        let d = `M0 ${y} Q${lo / 4} ${y - amp} ${lo / 2} ${y}`;
+        for (let x = lo; x <= ancho + lo; x += lo / 2) d += ` T${x} ${y}`;
+        return d;
+      }
+      $('ola-path').setAttribute('d', onda(ANCHO + LO * 2, 5, 2, LO));
+
+      const PORTADA_VACIA =
+        'data:image/svg+xml;utf8,' +
+        encodeURIComponent(
+          '<svg xmlns="http://www.w3.org/2000/svg" width="54" height="54"><rect width="54" height="54" fill="%231a1c38"/></svg>'
+        );
+
+      const mqReducido = matchMedia('(prefers-reduced-motion: reduce)');
+      let animando = false;
+      let sonando = false;
+
+      // Un único transform (translateX) a <=30 fps; sin GPU cada repintado
+      // cuesta, y 30 fps de una línea de 2 px se ven igual de fluidos.
+      let ultimoCuadro = 0;
+      function cuadro(t) {
+        if (!animando) return;
+        if (t - ultimoCuadro >= 1000 / FPS_MAX - 1) {
+          ultimoCuadro = t;
+          const x = -((t % CORRIENTE_MS) / CORRIENTE_MS) * LO;
+          $('ola-mueve').style.transform = `translateX(${x.toFixed(2)}px)`;
+        }
+        requestAnimationFrame(cuadro);
+      }
+      function ajustarAnimacion() {
+        const debe = sonando && !mqReducido.matches && !document.hidden;
+        if (debe && !animando) {
+          animando = true;
+          requestAnimationFrame(cuadro);
+        } else if (!debe) {
+          animando = false;
+          if (mqReducido.matches) $('ola-mueve').style.transform = '';
+        }
+      }
+      mqReducido.addEventListener?.('change', ajustarAnimacion);
+      document.addEventListener('visibilitychange', ajustarAnimacion);
+
+      puente.alRecibirEstado?.((estado) => {
+        const hay = estado.hayTrack !== false && Boolean(estado.titulo || estado.artista);
+        sonando = Boolean(hay && estado.sonando);
+        document.body.classList.toggle('vacia', !hay);
+        document.body.classList.toggle('pausado', !sonando);
+
+        $('titulo').textContent = hay ? estado.titulo || 'Musicsippi' : 'Nada sonando';
+        $('artista').textContent = hay ? estado.artista || '' : 'Abre la app para elegir';
+        $('portada').src = hay && estado.cover ? estado.cover : PORTADA_VACIA;
+        $('anterior').disabled = !hay;
+        $('siguiente').disabled = !hay;
+
+        // Mismos glifos que la barra de la app; el aria-label dice la acción.
+        $('play-uso').setAttribute('href', sonando ? '#i-pausa' : '#i-play');
+        $('play').setAttribute('aria-label', sonando ? 'Pausar' : 'Reproducir');
+
+        // Sin modo la línea se oculta. El fondo se tiñe con el color de la portada
+        // (lo calcula App) y, si no lo hay, con el del modo.
+        const modo = hay ? estado.modo : null;
+        $('modo').hidden = !modo?.nombre;
+        if (modo?.nombre) {
+          $('modo').lastElementChild.textContent = modo.nombre;
+          document.body.style.setProperty('--modo', modo.color || '#aaa7c6');
+        }
+        document.body.style.setProperty('--tinte', (hay && (estado.tinte || modo?.color)) || '#3a3d6b');
+
+        // Progreso 0-1 (NaN/ausente -> 0): solo mueve el recorte de la ola.
+        const p = Number(estado.progreso);
+        const frac = Number.isFinite(p) ? Math.min(1, Math.max(0, p)) : 0;
+        const x = Math.round(ANCHO * frac);
+        $('ola-rect').setAttribute('width', String(x));
+        $('ola-resto').setAttribute('x1', String(x));
+        ajustarAnimacion();
+      });
+
+      const mandar = (comando) => puente.enviarComando?.(comando);
+      $('anterior').onclick = () => mandar('anterior');
+      $('play').onclick = () => mandar('play-pausa');
+      $('siguiente').onclick = () => mandar('siguiente');
+      $('volver').onclick = () => puente.restaurarVentana?.();
+    </script>
+  </body>
+</html>

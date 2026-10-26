@@ -1,0 +1,172 @@
+/* src/movil/tema.css — tema claro de la capa móvil. El oscuro («La corriente») vive en
+   movil.css y es el valor por defecto de los tokens; aquí solo se redefinen los que dependen
+   del tema, bajo [data-tema-real='claro'] (lo pone src/data/tema.js; «Sistema» ya viene resuelto).
+   Idea: papel cálido, tinta casi negra y las mismas tarjetas de color, que son lo único que
+   no cambia de carácter. Lo que va sobre portada difuminada o tarjeta de color (reproductor,
+   hero, bienvenida) sigue siendo oscuro y claro-sobre-oscuro en los dos temas. */
+
+html[data-tema-real='claro']:has(.shell-movil) body {
+  background: #f7f2ea;
+  color: #1b1722;
+}
+
+html[data-tema-real='claro'] .shell-movil {
+  /* Papel: del lecho (fondo) a lo más hundido */
+  --agua-fondo: #f7f2ea;
+  --agua-honda: #fffcf6;      /* paneles: papel más blanco que el fondo */
+  --agua-media: #eee6d8;      /* elevados, chips */
+  --agua-alta: #e2d7c4;       /* pulsado, separadores fuertes */
+  --linea: rgb(52 36 70 / 0.1);
+  --linea-fuerte: rgb(52 36 70 / 0.18);
+
+  --texto: #1b1722;           /* 16.4:1 sobre --agua-fondo */
+  --tenue: #564f66;           /* 7.0:1 */
+  --tenue-mas: #6a6279;       /* 5.0:1 */
+
+  /* Marca: versiones más hondas para que el color también se lea como texto */
+  --rosa: #cf2068;
+  --rosa-claro: #c01e62;
+  --violeta: #6a4ce0;
+  --violeta-claro: #5b3fd0;
+  --naranja: #d9591a;
+  --turquesa: #0e8f80;
+
+  --sippi-texto: linear-gradient(95deg, #cf2068 0%, #a83bd6 55%, #6a4ce0 100%);
+  --sippi-suave: linear-gradient(100deg, rgb(255 77 141 / 0.16), rgb(124 92 255 / 0.16));
+
+  --vidrio: rgb(255 252 246 / 0.72);
+  --vidrio-denso: rgb(255 252 246 / 0.94);
+  --vidrio-borde: rgb(52 36 70 / 0.1);
+
+  --luces: radial-gradient(120% 60% at 100% 0%, rgb(255 120 170 / 0.18), transparent 60%),
+           radial-gradient(90% 50% at 0% 22%, rgb(150 120 255 / 0.14), transparent 65%);
+
+  --sombra-1: 0 1px 0 rgb(255 255 255 / 0.8) inset, 0 6px 16px -8px rgb(70 40 90 / 0.22);
+  --sombra-2: 0 1px 0 rgb(255 255 255 / 0.8) inset, 0 18px 40px -16px rgb(70 40 90 / 0.3);
+  --sombra-flotante: 0 1px 0 rgb(255 255 255 / 0.9) inset, 0 0 0 1px var(--vidrio-borde), 0 20px 40px -18px rgb(70 40 90 / 0.4);
+  --sombra-color: 0 16px 30px -18px color-mix(in srgb, var(--c, #6a4cd6) 80%, transparent);
+  color-scheme: light;
+
+  /* Tokens de la capa común (styles.css), que también usan pantallas compartidas como
+     «Modos y listas»: se enlazan al papel para que no queden paneles oscuros. */
+  --fondo: var(--agua-fondo);
+  --panel: var(--agua-honda);
+  --panel-alto: var(--agua-media);
+  --borde: var(--linea-fuerte);
+  --acento: #cf2068;
+  --acento-claro: var(--rosa-claro);
+  --peligro: #c0392b;
+  --funcional: #0e8f80;
+}
+
+/* El grano blanco no se ve sobre papel */
+html[data-tema-real='claro'] .shell-movil::before {
+  opacity: 0;
+}
+
+/* ---- Superficies que siguen siendo oscuras en los dos temas ----
+   El reproductor completo se pinta sobre la carátula difuminada: es oscuro por la carátula,
+   así que recupera los tokens oscuros en vez de heredar los de papel. Lo mismo el hero de
+   Inicio, que es una tarjeta de color con texto blanco. */
+html[data-tema-real='claro'] .shell-movil :is(.rep-completo, .rep-completo *, .inicio-hero, .inicio-hero *) {
+  --agua-fondo: #0a0b16;
+  --agua-honda: #11132a;
+  --agua-media: #1a1c38;
+  --agua-alta: #25284c;
+  --linea: rgb(255 255 255 / 0.08);
+  --linea-fuerte: rgb(255 255 255 / 0.14);
+  --texto: #f4f1fb;
+  --tenue: #aaa7c6;
+  --tenue-mas: #8b88ad;
+  --rosa: #ff4d8d;
+  --rosa-claro: #ff85b0;
+  --violeta: #7c5cff;
+  --violeta-claro: #a58bff;
+  --turquesa: #4cd9c6;
+  --sippi-texto: linear-gradient(95deg, #ff6b9f 0%, #d27cff 55%, #a58bff 100%);
+  --vidrio: rgb(22 24 50 / 0.64);
+  --vidrio-denso: rgb(20 22 46 / 0.92);
+  --vidrio-borde: rgb(255 255 255 / 0.09);
+  color-scheme: dark;
+  --fondo: #12131f;
+  --panel: #1a1b2e;
+  --panel-alto: #21223a;
+  --borde: #2a2b3d;
+  --acento: #ff4d8d;
+  --acento-claro: #ff85b0;
+  --peligro: #e17055;
+  --funcional: #4cd9c6;
+}
+
+/* ---- Botones «tinta» (fondo = texto): en claro el icono pasa a papel ---- */
+html[data-tema-real='claro'] .shell-movil :is(.m-play, .m-chips button.on):not(.inicio-hero *) {
+  color: var(--agua-honda) !important;
+}
+
+/* ---- Hojas ⋯ ---- */
+html[data-tema-real='claro'] .shell-movil .hoja {
+  background: linear-gradient(180deg, #fffdf8, #f6f0e5 40%);
+  box-shadow: 0 -1px 0 rgb(255 255 255 / 0.9) inset, 0 -24px 50px -20px rgb(70 40 90 / 0.35);
+}
+html[data-tema-real='claro'] .shell-movil .hoja::after {
+  background: #f6f0e5;
+}
+
+/* ---- Mini-reproductor: vidrio claro sobre la carátula ---- */
+html[data-tema-real='claro'] .mini-rep-fondo > span {
+  filter: blur(28px) saturate(1.2) brightness(1.2);
+}
+html[data-tema-real='claro'] .mini-rep-fondo::after {
+  background: rgb(255 252 246 / var(--mini-velo-claro, 0.72));
+}
+html[data-tema-real='claro'] .mini-rep > img,
+html[data-tema-real='claro'] .mini-rep-sin {
+  box-shadow: 0 6px 14px -6px rgb(70 40 90 / 0.45);
+}
+html[data-tema-real='claro'] .mini-rep-txt small {
+  color: var(--tenue);
+}
+html[data-tema-real='claro'] .mini-rep-txt small.mini-rep-fallo {
+  color: #b3321f;
+}
+html[data-tema-real='claro'] .mini-rep {
+  box-shadow: 0 16px 32px -16px rgb(70 40 90 / 0.4), 0 0 0 1px var(--vidrio-borde);
+}
+
+/* ---- Botones flotantes sobre portada (cabeceras de detalle): círculo oscuro, icono blanco ---- */
+html[data-tema-real='claro'] .shell-movil :is(.detalle-modo-flota, .heroe-atras, .heroe .m-sec) {
+  color: #fff !important;
+}
+
+/* ---- Textos que el CSS base fija en blanco pero que caen sobre papel ---- */
+html[data-tema-real='claro'] .m-subpantalla .editor td.nombre-eje {
+  color: var(--texto);
+}
+
+/* ---- Colores de estado sueltos: versiones con contraste sobre papel ---- */
+html[data-tema-real='claro'] .shell-movil :is(.config-fila em.si, .config-ok, .cfg-ini-estado.hoy) {
+  color: var(--turquesa);
+}
+html[data-tema-real='claro'] .shell-movil :is(.config-fila.peligro .config-tx b, .hoja .hoja-op.peligro) {
+  color: #c0392b;
+}
+
+/* ---- Cabecera con portada difuminada (artista, álbum): papel en lugar de noche ---- */
+html[data-tema-real='claro'] .heroe-fondo-img {
+  filter: blur(70px) saturate(1.3) brightness(1.15);
+}
+html[data-tema-real='claro'] .heroe-fondo::after {
+  background: linear-gradient(180deg, rgb(247 242 234 / 0.1) 0%, rgb(247 242 234 / 0.55) 38%, rgb(247 242 234 / 0.96) 100%);
+}
+html[data-tema-real='claro'] .heroe-img {
+  -webkit-mask-image: linear-gradient(180deg, #000 0, #000 38%, transparent 92%);
+  mask-image: linear-gradient(180deg, #000 0, #000 38%, transparent 92%);
+}
+
+/* ---- Trazos blancos translúcidos que sobre papel desaparecen ---- */
+html[data-tema-real='claro'] .bi-inf-base {
+  stroke: rgb(52 36 70 / 0.14);
+}
+html[data-tema-real='claro'] .ola-recta:not(.rep-completo *) {
+  stroke: rgb(52 36 70 / 0.22);
+}

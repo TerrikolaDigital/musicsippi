@@ -1,0 +1,30 @@
+// src/data/generos.js
+// Géneros reales de Deezer (/genre), tal cual los devuelve la API. Los usan
+// Explorar de escritorio (App.jsx) y Buscar de móvil (src/movil).
+export const GENEROS_DEEZER = [
+  { id: '0', nombre: 'Todos' },
+  { id: '132', nombre: 'Pop' },
+  { id: '116', nombre: 'Rap/Hip Hop' },
+  { id: '122', nombre: 'Reggaeton' },
+  { id: '152', nombre: 'Rock' },
+  { id: '113', nombre: 'Dance' },
+  { id: '165', nombre: 'R&B' },
+  { id: '85', nombre: 'Alternativo' },
+  { id: '106', nombre: 'Electro' },
+  { id: '466', nombre: 'Folk' },
+  { id: '144', nombre: 'Reggae' },
+  { id: '129', nombre: 'Jazz' },
+  { id: '67', nombre: 'Salsa' },
+  { id: '98', nombre: 'Clásica' },
+  { id: '464', nombre: 'Metal' },
+  { id: '173', nombre: 'Películas/Juegos' },
+  { id: '169', nombre: 'Soul & Funk' },
+  { id: '153', nombre: 'Blues' },
+  { id: '71', nombre: 'Cumbia' },
+  { id: '197', nombre: 'Latino' },
+  { id: '75', nombre: 'Música Brasileña' },
+  { id: '2', nombre: 'Música africana' },
+  { id: '16', nombre: 'Música asiática' },
+  { id: '81', nombre: 'Música india' },
+  { id: '95', nombre: 'Niños' },
+];

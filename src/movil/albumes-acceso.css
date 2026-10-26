@@ -1,0 +1,31 @@
+.shell-movil .bib-filtros .bib-orden {
+  margin-bottom: 0;
+}
+/* Organizador trabajando en segundo plano: punto pequeño en la cabecera de Inicio */
+.shell-movil .inicio-organizando-punto {
+  position: absolute;
+  inset: 4px;
+  border-radius: 50%;
+  border: 2px solid transparent;
+  border-top-color: var(--sippi);
+  border-right-color: var(--sippi);
+  animation: inicio-organizando 1.2s linear infinite;
+  pointer-events: none;
+}
+@keyframes inicio-organizando {
+  to {
+    transform: rotate(360deg);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .shell-movil .inicio-organizando-punto {
+    animation: none;
+    border-color: var(--sippi);
+    opacity: 0.6;
+  }
+}
+.shell-movil .rep-info-txt .rep-album {
+  margin-top: 0;
+  font-size: 13px;
+  opacity: 0.8;
+}

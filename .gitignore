@@ -1,0 +1,71 @@
+# Datos personales (biblioteca, historial de escucha, cachés): nunca en este repositorio.
+/data/
+
+node_modules/
+dist/
+dist-electron/
+dist-electron2/
+
+# Salida generada por el skill graphify (grafo de conocimiento del repo) —
+# se puede regenerar, no es código fuente.
+graphify-out/
+
+# Worktrees de git (superpowers/subagent-driven-development y EnterWorktree).
+.claude/worktrees/
+.worktrees/
+
+# Credenciales: nunca al repositorio.
+.env.local
+.env
+
+# Temporales de las escrituras atómicas (ver escribirAtomico en vite.config.js).
+*.tmp
+
+# Sello del build (scripts/sellar-version.mjs): se regenera en cada
+# empaquetado y describe el commit del que salió ESE paquete. Versionarlo
+# sería absurdo — cambiaría en cada build y apuntaría siempre al commit
+# anterior al que lo commitea.
+version-build.json
+
+# Configuración local de la máquina, no del proyecto.
+.claude/settings.local.json
+
+# Backups puntuales del importador: el historial de git ya cumple ese rol.
+data/*.backup-*.json
+data/*.bak-*
+# guardarSiValido() (fuentes.mjs, Tarea 10) usa sufijo sin guion (.bak a
+# secas, no .bak-<algo>) — patrón aparte para que el de arriba lo cubra.
+data/*.bak
+
+# Informes de `npm run diagnostico` (Tarea 9): un archivo nuevo por corrida,
+# nombrado con timestamp, sin valor una vez leído — no acumulan progreso como
+# cache-youtube.json, así que no tiene sentido versionarlos.
+data/diagnostico-*.json
+
+# Aviso de detección incremental (Tarea 18): flag efímero que escribe
+# scripts/importar.mjs cuando queda demasiada música sin modo, regenerado en
+# cada corrida y borrado apenas la app lo muestra o la persona lo descarta —
+# mismo criterio que data/diagnostico-*.json arriba.
+data/aviso-modos-nuevos.json
+
+# data/cache-youtube.json y data/metadata-spotify.json SÍ se versionan a propósito:
+# no tienen secretos y reconstruirlos cuesta cuota de API real (100 búsquedas/día
+# en YouTube). Perderlos es caro; versionarlos es gratis.
+# data/resolucion-youtube.json sigue el mismo criterio: se llena en la misma
+# pasada de búsqueda que cache-youtube.json (canal/título/fragmento de
+# descripción, gratis porque ya se paga esa llamada), así que se versiona junto.
+
+# Índice de vectores de embeddings (indice-vectores.mjs): distinto de los caches
+# de arriba porque reconstruirlo no cuesta cuota de red, solo cómputo local con
+# el modelo ya descargado — y cambia con cada texto enriquecido nuevo, así que
+# versionarlo ensuciaría cada diff sin aportar nada que no se derive de
+# biblioteca.json + las demás cachés ya versionadas.
+data/vectores.bin
+data/vectores-indice.json
+
+# Copias locales de instaladores (.exe de cientos de MB) — se distribuyen por
+# GitHub Releases, nunca por git: versionarlos rompería cualquier clon/fetch.
+instaladores/
+
+# Salida de scripts/publicar-version.mjs (APK + version.json listos para subir).
+dist-publicar/

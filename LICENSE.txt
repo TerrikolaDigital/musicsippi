@@ -1,0 +1,58 @@
+﻿Musicsippi
+Copyright (c) 2026 TerrikolaDigital. Todos los derechos reservados.
+
+1. LICENCIA DE USO
+
+Se otorga permiso, gratuito y no exclusivo, para usar esta aplicación (el
+software y todo su contenido) para uso personal.
+
+NO se otorga permiso para:
+  - Modificar, adaptar, traducir, decompilar, realizar ingeniería inversa
+    o crear obras derivadas del software, total o parcialmente.
+  - Usar el software, en todo o en parte, con fines comerciales.
+  - Redistribuir versiones modificadas del software.
+  - Sublicenciar, vender, alquilar o transferir el software a terceros
+    con fines comerciales.
+
+Sí se permite:
+  - Usar la aplicación tal como se distribuye.
+  - Compartir copias sin modificar de la aplicación, siempre que se
+    incluya este aviso de licencia sin cambios.
+
+2. AUSENCIA DE GARANTÍA
+
+Este software se entrega "TAL CUAL" ("AS IS"), sin garantía de ningún
+tipo, expresa o implícita, incluyendo pero no limitada a garantías de
+comerciabilidad, idoneidad para un propósito particular, precisión, o
+ausencia de errores o vulnerabilidades. El autor no garantiza que el
+software funcione sin interrupciones ni que esté libre de fallos.
+
+3. LIMITACIÓN DE RESPONSABILIDAD
+
+En la máxima medida permitida por la ley aplicable, TerrikolaDigital y
+el autor de este software NO serán responsables por ningún daño directo,
+indirecto, incidental, especial, ejemplar o consecuente que surja del
+uso o la imposibilidad de uso del software, incluyendo sin limitación:
+
+  - Daños a equipos, hardware, software, datos o sistemas del usuario.
+  - Pérdida de datos, información o contenido.
+  - Daños derivados de accesos no autorizados, intrusiones, ataques
+    informáticos, malware o cualquier otra actividad maliciosa de
+    terceros dirigida al software, al usuario, o a los sistemas donde
+    el software se ejecute.
+  - Interrupciones de servicio, pérdidas económicas o cualquier otro
+    perjuicio, aunque se haya advertido de la posibilidad de dichos
+    daños.
+
+Esta limitación aplica incluso cuando el autor haya adoptado medidas
+razonables para procurar la seguridad del software (uso de herramientas
+y prácticas de seguridad disponibles al momento del desarrollo), ya que
+ninguna medida de seguridad garantiza protección absoluta frente a
+vulnerabilidades desconocidas o ataques de terceros.
+
+El uso de este software es bajo exclusivo riesgo del usuario.
+
+4. ACEPTACIÓN
+
+El uso de este software implica la aceptación de los términos de esta
+licencia en su totalidad.

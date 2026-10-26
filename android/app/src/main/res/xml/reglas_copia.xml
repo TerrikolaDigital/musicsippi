@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Copia automática Android 11 o anterior: la caché sin conexión no se respalda -->
+<full-backup-content>
+    <exclude domain="file" path="sin-conexion/" />
+    <exclude domain="sharedpref" path="sin_conexion_clave.xml" />
+    <exclude domain="database" path="exoplayer_internal.db" />
+    <exclude domain="database" path="exoplayer_internal.db-journal" />
+    <exclude domain="database" path="exoplayer_internal.db-wal" />
+    <exclude domain="database" path="exoplayer_internal.db-shm" />
+</full-backup-content>

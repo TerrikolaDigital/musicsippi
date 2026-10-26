@@ -1,0 +1,13 @@
+{
+  "appId": "com.terrikola.musicsippi",
+  "appName": "Musicsippi",
+  "webDir": "dist",
+  "android": {
+    "allowMixedContent": false
+  },
+  "plugins": {
+    "SystemBars": {
+      "style": "DARK"
+    }
+  }
+}

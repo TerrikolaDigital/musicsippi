@@ -1,0 +1,190 @@
+/* Buscar sin texto: últimas búsquedas y «Explorar por género». */
+
+/* Objetivos táctiles de 48 px: últimas búsquedas */
+.shell-movil .buscar-recientes-cab {
+  align-items: center;
+  margin-bottom: 4px;
+}
+
+.shell-movil .buscar-recientes-cab button {
+  min-height: 48px;
+  padding: 0 4px 0 16px;
+  color: var(--tenue);
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.shell-movil .buscar-reciente {
+  min-height: 48px;
+}
+
+.shell-movil .buscar-reciente-txt {
+  min-height: 48px;
+}
+
+.shell-movil .buscar-reciente-x {
+  width: 48px;
+  height: 48px;
+}
+
+/* Chips de género */
+.shell-movil .explorar-m-generos button {
+  min-height: 48px;
+}
+
+.explorar-contenido {
+  animation: explorar-entra 0.24s var(--ease-salida);
+}
+
+@keyframes explorar-entra {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+/* Álbumes: 3 columnas */
+.explorar-albumes {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 14px 10px;
+}
+
+.shell-movil .explorar-album {
+  display: block;
+  min-width: 0;
+  min-height: 48px;
+  text-align: left;
+  color: var(--texto);
+}
+
+.explorar-album-img {
+  display: block;
+  aspect-ratio: 1;
+  border-radius: var(--r-portada-l);
+  overflow: hidden;
+  background: var(--agua-media);
+}
+
+.explorar-album-img > :first-child {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.explorar-album b,
+.explorar-album small {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.explorar-album b {
+  margin-top: 6px;
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.25;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+}
+
+.explorar-album small {
+  margin-top: 1px;
+  font-size: 12px;
+  color: var(--tenue);
+  white-space: nowrap;
+}
+
+/* Canciones en tendencia: 2 columnas con las tarjetas de «fuera» (▶ y ＋) */
+.explorar-canciones {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px 12px;
+}
+
+.explorar-canciones .ext-tarjeta {
+  width: auto;
+  min-width: 0;
+}
+
+.explorar-canciones .ext-tarjeta-img {
+  width: 100%;
+  height: auto;
+  aspect-ratio: 1;
+}
+
+.explorar-canciones .ext-play,
+.explorar-canciones .ext-mas {
+  width: 48px;
+  height: 48px;
+}
+
+.explorar-canciones .ext-mas::before {
+  inset: 8px;
+}
+
+/* Esqueletos */
+.explorar-esq {
+  display: block;
+  background: linear-gradient(90deg, var(--agua-honda) 25%, var(--agua-media) 50%, var(--agua-honda) 75%);
+  background-size: 200% 100%;
+  animation: m-silueta 1.2s linear infinite;
+}
+
+.explorar-esq-titulo {
+  width: 150px;
+  height: 22px;
+  border-radius: 8px;
+}
+
+.explorar-esq-fila {
+  display: flex;
+  gap: 12px;
+  overflow: hidden;
+}
+
+.explorar-esq-circulo {
+  flex: none;
+  width: 100px;
+  height: 100px;
+  border-radius: 50%;
+}
+
+.explorar-esq-cuadro {
+  aspect-ratio: 1;
+  border-radius: var(--r-portada-l);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .explorar-contenido,
+  .explorar-esq {
+    animation: none;
+  }
+}
+
+/* Error de red */
+.explorar-error {
+  margin: 14px 0;
+  padding: 16px;
+  border-radius: var(--r-control);
+  background: var(--agua-honda);
+  box-shadow: 0 0 0 1px var(--linea) inset;
+}
+
+.explorar-error p {
+  margin: 0 0 6px;
+  color: var(--tenue);
+  font-size: 14px;
+}
+
+.shell-movil .explorar-error button {
+  min-height: 48px;
+  padding: 0 4px;
+  font-weight: 600;
+  color: var(--texto);
+}

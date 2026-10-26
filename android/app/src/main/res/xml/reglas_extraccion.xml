@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Copia en la nube y traspaso de dispositivo (Android 12 o posterior): sin caché sin conexión -->
+<data-extraction-rules>
+    <cloud-backup>
+        <exclude domain="file" path="sin-conexion/" />
+        <exclude domain="sharedpref" path="sin_conexion_clave.xml" />
+        <exclude domain="database" path="exoplayer_internal.db" />
+        <exclude domain="database" path="exoplayer_internal.db-journal" />
+        <exclude domain="database" path="exoplayer_internal.db-wal" />
+        <exclude domain="database" path="exoplayer_internal.db-shm" />
+    </cloud-backup>
+    <device-transfer>
+        <exclude domain="file" path="sin-conexion/" />
+        <exclude domain="sharedpref" path="sin_conexion_clave.xml" />
+        <exclude domain="database" path="exoplayer_internal.db" />
+        <exclude domain="database" path="exoplayer_internal.db-journal" />
+        <exclude domain="database" path="exoplayer_internal.db-wal" />
+        <exclude domain="database" path="exoplayer_internal.db-shm" />
+    </device-transfer>
+</data-extraction-rules>

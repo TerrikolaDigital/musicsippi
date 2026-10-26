@@ -1,0 +1,5186 @@
+/* Paleta y tipografía de la guía de marca de Musicsippi (colores/roles/
+   gradientes exactos del documento oficial, no reinterpretados). El fondo
+   de la app SIEMPRE es --fondo o --panel, nunca blanco — regla explícita
+   de la guía. Los degradados se reservan para íconos, CTAs principales y
+   tarjetas destacadas; el resto de la interfaz usa color sólido. */
+:root {
+  --fondo: #12131f;
+  --panel: #1a1b2e;
+  --panel-alto: #21223a;
+  --borde: #2a2b3d;
+  --texto: #f3f1fa;
+  --tenue: #a9a6c4;
+  --tenue-mas: #6e6c8a;
+
+  --acento: #ff4d8d; /* Primario — música/pasión */
+  --acento-claro: #ff85b0;
+  --secundario: #ff7a45; /* energía/ritmo */
+  --acento-calido: #ffc857; /* alegría/play */
+  --acento-frio: #4cd9c6; /* frescura/flow */
+  --acento-morado: #7c5cff; /* creatividad */
+
+  --gradiente-primario: linear-gradient(135deg, #ff4d8d, #7c5cff);
+  --gradiente-secundario: linear-gradient(135deg, #ff7a45, #ffb347);
+  --gradiente-acento: linear-gradient(135deg, #4cd9c6, #2ec4b6);
+
+  --peligro: #e17055;
+  --funcional: #4cd9c6;
+  --radio: 14px;
+
+  --fuente-titulos: 'Poppins', system-ui, sans-serif;
+  --fuente-texto: 'Inter', system-ui, sans-serif;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+/* Shell de un solo scroll: el bug real era que `body` scrolleaba la página
+   entera Y cada lista larga (.cola-scroll) tenía ADEMÁS su propio scroll
+   interno de 60vh, así que en pantallas como "Explorando" aparecían DOS
+   scrollbars a la vez, sin ninguna relación entre sí (ver
+   docs/superpowers/specs/2026-09-15-shell-scroll-unico-design.md). La
+   primera solución metía todo en un contenedor flex de altura fija
+   (`.app-contenido` con su propio overflow-y) y dejaba `body` sin scroll
+   — funcionaba, pero el menú fijo permanente restaba espacio para siempre
+   y se sentía "enjaulado" en vez de una página normal. Revisión: `body`
+   vuelve a ser el único que scrollea, y `.app-cabecera` (ver más abajo) se
+   encoge sola al bajar y reaparece al subir — un solo scroll, sin volver a
+   perder espacio de forma permanente. */
+html,
+body {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  background: var(--fondo);
+  color: var(--texto);
+  font: 16px/1.5 var(--fuente-texto);
+  /* Diagnosticado con Codex: `.app-cabecera` cambia de alto (sticky, arriba
+     de todo el contenido) mientras el scroll sigue en curso. Sin esto,
+     Chromium puede activar "scroll anchoring" y compensar el scrollTop
+     solo para mantener el mismo contenido anclado en pantalla — ese
+     ajuste automático altera `scrollY` justo después de que nuestro
+     propio handler lo cambió, retroalimentando el ciclo y viéndose como
+     un salto. Ver docs/superpowers/specs/2026-09-15-shell-scroll-unico-design.md. */
+  overflow-anchor: none;
+}
+
+/* --- barra de scroll ---
+   Sin esto, Windows dibuja su scrollbar nativa: ancha, clara y con flechas
+   arriba y abajo — se ve pegada encima de una app oscura, como si fuera de
+   otro programa. Se estiliza con las dos APIs a propósito: `::-webkit-*` es
+   la que aplica en Electron/Chromium (y da control del grosor, el radio y
+   las flechas), mientras que `scrollbar-width`/`scrollbar-color` son el
+   estándar que cubre Firefox, donde la app también corre desde el navegador.
+
+   El pulgar usa `background-clip: content-box` con un borde transparente:
+   es el truco para dejarlo más finito que la pista sin perder área de
+   agarre — el borde sigue siendo clickeable aunque no se pinte. */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--borde) transparent;
+}
+
+::-webkit-scrollbar {
+  width: 12px;
+  height: 12px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--borde);
+  background-clip: content-box;
+  border: 3px solid transparent;
+  border-radius: 999px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--tenue-mas);
+  background-clip: content-box;
+}
+
+/* Las flechas de Windows no existen en ninguna otra plataforma y no aportan
+   nada acá — la app se navega con rueda, teclado y arrastre del pulgar. */
+::-webkit-scrollbar-button {
+  display: none;
+}
+
+/* Donde se cruzan la barra vertical y la horizontal, Chromium pinta un
+   cuadradito con el color por defecto si no se lo apaga. */
+::-webkit-scrollbar-corner {
+  background: transparent;
+}
+
+h1,
+h2,
+h3,
+.eyebrow,
+.titulo,
+.tarjeta-fila-nombre,
+.cola-titulo,
+.historial-subtitulo {
+  font-family: var(--fuente-titulos);
+}
+
+.app {
+  max-width: 1100px;
+  margin: 0 auto;
+  padding: 0 20px;
+}
+
+/* Envuelve .fijo-arriba + .submenu como una sola pieza sticky. `height` (no
+   `max-height`) lo anima App.jsx entre 0 y su alto real medido con
+   ResizeObserver. `overflow: hidden` evita que se vea contenido cortado.
+   Al ser sticky (no fixed) y encogerse con su altura real, cuando llega a
+   0 el contenido de `.app-contenido` sube solo para ocupar el lugar — no
+   queda un hueco vacío como pasaría con position:fixed + spacer.
+
+   SIN transition: probado en vivo (app instalada, no solo el navegador de
+   desarrollo), animar `height` en un elemento sticky mientras el usuario
+   sigue scrolleando de verdad hace que el recalculo de scroll del navegador
+   y la animación de altura queden un frame desincronizados — se veía como
+   un salto/superposición del contenido de abajo por debajo de la cabecera
+   a mitad de colapsar. Colapsando de golpe (sin transición) no hay
+   "a mitad de camino" que pueda desincronizarse. */
+.app-cabecera {
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  overflow: hidden;
+  background: var(--fondo);
+}
+
+/* Ya no tiene scroll propio: `body` es el único que scrollea (ver comentario
+   arriba de html/body). Sigue existiendo como marcador de "acá empieza el
+   contenido de la vista actual", después de `.app-cabecera`. */
+.app-contenido {
+}
+
+/* --- cabecera --- */
+
+/* Agrupa el aviso app-wide + <header> para que se apilen siempre en el mismo
+   orden. El sticky real vive en `.app-cabecera` (el padre de este div, ver
+   más arriba) — tenerlo acá también generaba un sticky anidado sin
+   necesidad, ya redundante desde que `.app-cabecera` es una sola pieza. */
+.fijo-arriba {
+  background: var(--fondo);
+}
+
+.cabecera {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 16px 0;
+  background: var(--fondo);
+  border-bottom: 1px solid var(--borde);
+  /* Electron usa titleBarStyle:'hidden' (ver electron/main.cjs) para pintar
+     la franja de arriba con el mismo fondo oscuro que el resto de la app —
+     eso saca la barra nativa de Windows, pero también saca su arrastre
+     automático: sin marcar esto, la ventana no se puede mover agarrando de
+     arriba. Los elementos interactivos de acá abajo (botones, buscador) se
+     marcan aparte como no-drag para poder seguir clickeándolos. */
+  -webkit-app-region: drag;
+}
+
+.cabecera button,
+.cabecera input,
+.cabecera label {
+  -webkit-app-region: no-drag;
+}
+
+.titulo {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: none;
+  border: 0;
+  color: var(--texto);
+  font-size: 20px;
+  font-weight: 800;
+  letter-spacing: -0.02em;
+  cursor: pointer;
+  padding: 0;
+}
+
+.titulo-icono {
+  width: 44px;
+  height: 44px;
+  border-radius: 22%;
+}
+
+.titulo-acento {
+  background: var(--gradiente-primario);
+  background-clip: text;
+  -webkit-background-clip: text;
+  color: transparent;
+}
+
+/* Barra de búsqueda siempre visible en la cabecera, entre el logo y el nav
+   (no solo un botón "Buscar", ni algo que solo aparece en el Home) — pedido
+   explícito: tiene que estar disponible sin importar en qué pantalla estés. */
+.cabecera-buscador {
+  flex: 1;
+  min-width: 0;
+  max-width: 420px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 9px 14px;
+  background: var(--panel);
+  border: 1px solid var(--borde);
+  border-radius: 999px;
+  cursor: text;
+}
+
+.cabecera-buscador:focus-within {
+  border-color: var(--acento);
+}
+
+.cabecera-buscador-icono {
+  font-size: 14px;
+  opacity: 0.7;
+  flex-shrink: 0;
+}
+
+.cabecera-buscador input {
+  flex: 1;
+  min-width: 0;
+  background: none;
+  border: none;
+  /* padding-left evita que la primera letra (ej. "J") se vea recortada
+     contra el borde del input al no tener aire propio antes del texto. */
+  padding: 0 0 0 2px;
+  color: var(--texto);
+  font-size: 14px;
+}
+
+.cabecera-buscador input:focus {
+  outline: none;
+}
+
+.cabecera nav {
+  display: flex;
+  gap: 8px;
+}
+
+.cabecera nav button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: var(--panel);
+  border: 1px solid var(--borde);
+  color: var(--tenue);
+  padding: 8px 14px;
+  border-radius: 999px;
+  cursor: pointer;
+  font-size: 14px;
+}
+
+.cabecera nav button:hover,
+.cabecera nav button.activo {
+  color: var(--texto);
+  border-color: var(--acento);
+}
+
+/* Variante solo-ícono: botones circulares en vez de píldoras con texto. */
+.nav-iconos button {
+  padding: 10px;
+  width: 44px;
+  height: 44px;
+  justify-content: center;
+}
+
+.nav-iconos button svg {
+  width: 22px;
+  height: 22px;
+}
+
+.badge {
+  background: var(--acento);
+  color: #fff;
+  border-radius: 999px;
+  padding: 1px 7px;
+  font-size: 12px;
+  margin-left: 4px;
+}
+
+/* Accesos fijos (Mis favoritas/Artistas/Listas/Canciones/Explorar), siempre
+   visibles debajo de la cabecera, separados del cuadro de texto — antes
+   vivían como pestañas DENTRO del buscador, atadas a haber escrito algo. */
+.submenu {
+  display: flex;
+  gap: 8px;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--borde);
+  overflow-x: auto;
+}
+
+.submenu button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+  background: none;
+  border: 1px solid transparent;
+  color: var(--tenue);
+  padding: 6px 12px;
+  border-radius: 999px;
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.submenu button:hover {
+  color: var(--texto);
+  background: var(--panel);
+}
+
+.submenu button.activo {
+  color: var(--acento-claro);
+  background: var(--panel-alto);
+  /* Sin borde marcado: el pedido fue que se distinga por el relleno/color de
+     texto, no por un contorno que lo hace leer como una pestaña aparte. */
+  border-color: transparent;
+}
+
+/* Explorar es la puerta al descubrimiento, no una categoría más de tu
+   biblioteca — pedido explícito: tratamiento visual algo más destacado,
+   misma posición. Mismo degradado que ya usa el botón de play principal en
+   toda la app (--gradiente-primario), no un color nuevo. */
+.submenu button.submenu-explorar {
+  color: #fff;
+  background: var(--gradiente-primario);
+  border-color: transparent;
+}
+
+.submenu button.submenu-explorar:hover {
+  opacity: 0.9;
+  color: #fff;
+}
+
+.submenu button.submenu-explorar.activo {
+  color: #fff;
+  background: var(--gradiente-primario);
+  border-color: var(--acento-claro);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--acento) 40%, transparent);
+}
+
+/* --- modos --- */
+
+.modos section {
+  margin-top: 36px;
+}
+
+.modos h2 {
+  font-size: 15px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--tenue);
+  font-weight: 600;
+  margin-bottom: 14px;
+}
+
+.modos h2 small {
+  text-transform: none;
+  letter-spacing: 0;
+  font-weight: 400;
+  margin-left: 8px;
+  opacity: 0.7;
+}
+
+.grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(230px, 1fr));
+  gap: 18px;
+}
+
+/* Inicio rápido: 4 accesos directos, mismo lenguaje visual que el resto de
+   la app (borde + radio + hover en acento), sin inventar un estilo nuevo. */
+.inicio-rapido-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.inicio-rapido-tile {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  padding: 18px 8px;
+  background: var(--panel);
+  border: 1px solid var(--borde);
+  border-radius: var(--radio);
+  color: var(--texto);
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 600;
+  text-align: center;
+}
+
+.inicio-rapido-tile:hover {
+  border-color: var(--acento);
+  color: var(--acento-claro);
+}
+
+@media (max-width: 640px) {
+  .inicio-rapido-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+/* Home en dos columnas: el contenido principal a la izquierda, "Para
+   escuchar" fijo a la derecha aprovechando el lateral que quedaba vacío en
+   pantallas anchas. Se apila en una sola columna en mobile/tablet, donde no
+   hay lateral que aprovechar. */
+.modos-layout {
+  display: grid;
+  grid-template-columns: 1fr 300px;
+  gap: 28px;
+  align-items: start;
+}
+
+.modos-principal {
+  min-width: 0;
+}
+
+@media (max-width: 900px) {
+  .modos-layout {
+    grid-template-columns: 1fr;
+  }
+  .modos-lateral {
+    position: static !important;
+  }
+}
+
+/* Cada sección de tarjetas vive en una sola fila horizontal, en grilla CSS
+   pura (antes esto se medía en JS con un ResizeObserver — useCupoFila — que
+   dibujaba una primera pasada con un cupo adivinado y la corregía después;
+   ese doble paso, repetido en 5 secciones cada vez que se entraba a Inicio,
+   era la causa real del flash/reorganización al volver al Home). `auto-fill`
+   nunca crea una columna más angosta que el mínimo, así que las tarjetas que
+   no entran quedan enteras en la fila 2+ — y esa fila 2+ se "esconde" con
+   grid-auto-rows:0 (la tarjeta sigue ahí, solo que su fila no ocupa alto, y
+   overflow:hidden recorta lo que sobresale). "Ver todas" expande a grilla
+   completa envolviendo en varias filas. */
+.fila-tarjetas {
+  display: grid;
+  /* 300px, no 230px: con miniatura+play+⋮ fijos, 230px dejaba ~70px reales
+     para el nombre — se veía "Nostalgia rock 90s/2000s" cortado a "Nostal…".
+     Con menos columnas por fila pero cada una más ancha, el nombre entra
+     entero (o corta mucho menos) sin tocar el resto del diseño. */
+  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+  /* `grid-template-rows` fija la fila 1 (real, con alto propio); sin esto
+     grid-auto-rows también rige la fila 1 y colapsa TODA la grilla a 0px. */
+  grid-template-rows: auto;
+  grid-auto-rows: 0;
+  column-gap: 18px;
+  row-gap: 0;
+  overflow: hidden;
+  align-items: start;
+}
+
+.fila-tarjetas.expandida {
+  grid-auto-rows: auto;
+  row-gap: 18px;
+  overflow: visible;
+}
+
+/* "Por artistas" muestra 2 filas por defecto (no 1): a este ancho de
+   tarjeta entran pocas por fila, así que una sola fila se sentía corta —
+   `grid-template-rows: auto auto` fija DOS filas reales. El espacio entre
+   ambas NO puede venir de row-gap: la grilla lo inserta TAMBIÉN entre la
+   fila 2 (real) y la fila 3 (forzada a 0px por grid-auto-rows, heredado de
+   .fila-tarjetas), estirando el alto del contenedor más allá de donde
+   corta — se veía como un borde de la fila 3 asomando abajo. En cambio, el
+   espacio va como margen de cada tarjeta: contribuye al alto "auto" de sus
+   propias filas 1 y 2 nada más, y la fila 0px de abajo se queda en 0 de
+   verdad. margin-bottom negativo en el contenedor cancela el margen
+   sobrante que deja la última tarjeta visible. */
+.fila-tarjetas-artistas {
+  grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+  grid-template-rows: auto auto;
+  column-gap: 14px;
+  row-gap: 0;
+  margin-bottom: -18px;
+}
+
+.fila-tarjetas-artistas > * {
+  margin-bottom: 18px;
+}
+
+/* Mismo truco que .fila-tarjetas-artistas (ver comentario arriba), para
+   "Mis listas" del Home — 2 filas por defecto en vez de 1, pedido explícito
+   análogo al de "Por artistas". Mantiene el ancho de tarjeta (300px) y el
+   column-gap (18px) de .fila-tarjetas base, solo cambia las filas. */
+.fila-tarjetas-listas {
+  grid-template-rows: auto auto;
+  row-gap: 0;
+  margin-bottom: -18px;
+}
+
+.fila-tarjetas-listas > * {
+  margin-bottom: 18px;
+}
+
+/* Botón de acción inline junto a un título de sección — "＋ Crear lista" y
+   los distintos "Ver todas" de cada fila viven acá arriba, al lado del
+   título, en vez de ocupar un lugar en la fila de tarjetas. */
+.h2-accion {
+  margin-left: 10px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  border: 1px dashed var(--borde);
+  background: none;
+  color: var(--tenue);
+  font-size: 12px;
+  text-transform: none;
+  letter-spacing: 0;
+  font-weight: 500;
+  cursor: pointer;
+  vertical-align: middle;
+}
+
+.h2-accion:hover {
+  border-color: var(--acento);
+  color: var(--acento-claro);
+}
+
+/* top: 16px (sin más) lo dejaba pegarse contra el borde de la ventana, por
+   DEBAJO del header — al scrollear, el header le tapaba el título de
+   arriba. `--cabecera-alto-actual` (seteada en App.jsx) es el alto REAL de
+   `.app-cabecera` en cada momento: 0 cuando está escondida, su alto medido
+   cuando está visible — así este sticky siempre queda pegado justo debajo
+   de la cabecera. Sin transition a propósito: .app-cabecera tampoco anima
+   su alto (ver el comentario ahí) — ambos cambian de golpe, en el mismo
+   instante, así nunca quedan desincronizados. */
+.modos-lateral {
+  position: sticky;
+  top: var(--cabecera-alto-actual, 0px);
+  background: var(--panel);
+  border: 1px solid var(--borde);
+  border-radius: var(--radio);
+  padding: 18px;
+}
+
+.modos-lateral h2 {
+  font-size: 15px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--tenue);
+  font-weight: 600;
+  margin-bottom: 14px;
+}
+
+.modos-lateral h2 small {
+  display: block;
+  text-transform: none;
+  letter-spacing: 0;
+  font-weight: 400;
+  margin-top: 4px;
+  opacity: 0.7;
+  font-size: 12px;
+}
+
+.lateral-lista {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  max-height: calc(100vh - 234px);
+  overflow-y: auto;
+}
+
+/* "Por artistas" del Home: pedido explícito de que las 12 entren sin
+   scroll interno (a diferencia de "Parecidos"/"Más álbumes", que sí pueden
+   tener más ítems de los que entran en la ventana). */
+.lateral-lista-artistas {
+  max-height: none;
+  overflow-y: visible;
+}
+
+.lateral-item {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px;
+  background: none;
+  border: 0;
+  border-radius: 10px;
+  color: var(--texto);
+  cursor: pointer;
+  text-align: left;
+}
+
+.lateral-item:hover {
+  background: var(--panel-alto);
+}
+
+.lateral-item-swatch {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--color-modo);
+  flex-shrink: 0;
+}
+
+/* Miniatura cuadrada (álbum) en una fila lateral compacta — mismo lugar que
+   .lateral-item-swatch pero para "Más álbumes de X", donde una carátula real
+   comunica más que un punto de color. */
+.lateral-item-cover {
+  width: 36px;
+  height: 36px;
+  border-radius: 6px;
+  object-fit: cover;
+  flex-shrink: 0;
+}
+
+.lateral-item-cover-redonda {
+  border-radius: 50%;
+}
+
+.lateral-item-cover-vacia {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #fff;
+  font-family: var(--fuente-titulos);
+  font-weight: 700;
+  font-size: 11px;
+}
+
+/* Avatar redondo con inicial — mismo lenguaje que .tarjeta-artista-foto de
+   "Por artistas", a tamaño de fila lateral, para "Parecidos a X" cuando
+   Deezer no tiene foto del artista similar. */
+.lateral-item-avatar {
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #fff;
+  font-family: var(--fuente-titulos);
+  font-weight: 700;
+  font-size: 14px;
+}
+
+.lateral-item-texto {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.lateral-item-nombre {
+  font-size: 13px;
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.lateral-item-total {
+  font-size: 11px;
+  color: var(--tenue);
+}
+
+/* Fila compacta — pedido explícito de sacar el "mosaico" de carátulas de
+   "Seguí escuchando"/"Mis listas" (y por extensión el resto de tarjetas de
+   modo del Home, mismo componente): una miniatura chica, no un collage, y
+   el play SIEMPRE visible (no solo al hover) para arrancar sin entrar. Las
+   carátulas grandes quedan para Explorar/Álbumes/destacados, no acá. */
+.tarjeta-fila {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  background: var(--panel);
+  border: 1px solid var(--borde);
+  border-radius: var(--radio);
+  padding: 8px 10px;
+}
+
+.tarjeta-fila-principal {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  background: none;
+  border: 0;
+  padding: 0;
+  color: var(--texto);
+  cursor: pointer;
+  text-align: left;
+}
+
+.tarjeta-fila-miniatura {
+  width: 48px;
+  height: 48px;
+  flex-shrink: 0;
+  border-radius: 8px;
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.tarjeta-fila-miniatura img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.tarjeta-fila-texto {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.tarjeta-fila-nombre {
+  font-weight: 600;
+  font-size: 15px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tarjeta-fila-artistas {
+  color: var(--tenue);
+  font-size: 12px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Vista completa de "Listas" del buscador — tarjetas más grandes que el
+   resto de la app (pedido explícito, puntual de esta pantalla) para que
+   entren 2 líneas de artistas en vez de 1. */
+.tarjeta-fila-grande .tarjeta-fila {
+  padding: 14px 16px;
+  gap: 14px;
+}
+
+.tarjeta-fila-grande .tarjeta-fila-principal {
+  gap: 16px;
+}
+
+.tarjeta-fila-grande .tarjeta-fila-miniatura {
+  width: 72px;
+  height: 72px;
+  border-radius: 10px;
+}
+
+.tarjeta-fila-grande .tarjeta-fila-nombre {
+  font-size: 17px;
+}
+
+.tarjeta-fila-grande .tarjeta-fila-artistas {
+  font-size: 13px;
+  white-space: normal;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  line-clamp: 2;
+}
+
+.tarjeta-fila-grande .tarjeta-fila-total {
+  font-size: 13px;
+}
+
+.tarjeta-fila-grande .tarjeta-fila-play {
+  width: 42px;
+  height: 42px;
+}
+
+.tarjeta-fila-total {
+  color: var(--tenue);
+  font-size: 12px;
+}
+
+/* Por defecto tenue (fondo apenas teñido, ícono en color acento) — sólido
+   recién con la tarjeta en hover. Pedido explícito: mantenerlo SIEMPRE
+   visible (ver comentario de .tarjeta-fila arriba), pero muchas tarjetas
+   juntas con el círculo sólido todo el tiempo se sentía "cargado" de rosa. */
+.tarjeta-fila-play {
+  flex-shrink: 0;
+  width: 34px;
+  height: 34px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: color-mix(in srgb, var(--acento) 16%, transparent);
+  color: var(--acento-claro);
+  border: 0;
+  border-radius: 50%;
+  font-size: 13px;
+  cursor: pointer;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+
+.tarjeta-fila:hover .tarjeta-fila-play {
+  background: var(--acento);
+  color: #fff;
+}
+
+.tarjeta-fila-play:hover {
+  filter: brightness(1.1);
+}
+
+.tarjeta-fila-mas {
+  position: relative;
+  flex-shrink: 0;
+}
+
+.tarjeta-fila-mas summary {
+  width: 30px;
+  height: 30px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: none;
+  border: 0;
+  border-radius: 50%;
+  color: var(--tenue);
+  cursor: pointer;
+  list-style: none;
+}
+
+.tarjeta-fila-mas summary::-webkit-details-marker {
+  display: none;
+}
+
+.tarjeta-fila-mas summary:hover {
+  color: var(--texto);
+  background: var(--panel-alto);
+}
+
+/* position:fixed + posicionar() en JS, igual que .menu-listas-panel. Antes
+   esto era position:absolute, con el razonamiento de que la grilla de
+   tarjetas no tiene scroll propio y por lo tanto no hacía falta JS. El
+   razonamiento miraba el dato equivocado: lo que recorta no es el scroll
+   sino el `overflow: hidden` de .fila-tarjetas (que existe para esconder las
+   tarjetas de la fila 2+ que no entran), y ese recorte se come igual
+   cualquier hijo absoluto. Medido: de los 45px del panel, 29 quedaban
+   afuera. */
+.tarjeta-fila-mas-panel {
+  position: fixed;
+  z-index: 20;
+  min-width: 170px;
+  background: var(--panel-alto);
+  border: 1px solid var(--borde);
+  border-radius: var(--radio);
+  padding: 6px;
+  box-shadow: 0 12px 32px rgb(0 0 0 / 0.5);
+}
+
+.tarjeta-fila-mas-panel button {
+  width: 100%;
+  background: none;
+  border: 0;
+  border-radius: 6px;
+  color: var(--texto);
+  font-size: 13px;
+  padding: 8px 10px;
+  cursor: pointer;
+  text-align: left;
+}
+
+.tarjeta-fila-mas-panel button:hover {
+  background: var(--panel);
+}
+
+/* --- hero "modo del momento" --- */
+
+.hero-modo-seccion {
+  margin-bottom: 8px;
+}
+
+.hero-modo {
+  position: relative;
+  overflow: hidden;
+  border-radius: var(--radio);
+  border: 1px solid var(--borde);
+  background: linear-gradient(135deg, color-mix(in srgb, var(--color-modo) 25%, var(--panel)) 0%, var(--panel) 70%);
+}
+
+.hero-modo-blur {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  transform: scale(1.15);
+  filter: blur(30px);
+  opacity: 0.45;
+}
+
+/* Cenefa sobre la carátula difuminada: sin esto el título y el texto quedan
+   ilegibles cuando el cover de fondo es claro o muy saturado. Más oscura
+   hacia la derecha, que es donde vive el texto (el collage a la izquierda
+   ya tiene su propio contraste). */
+.hero-modo-scrim {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(90deg, rgb(18 19 31 / 0.25) 0%, rgb(18 19 31 / 0.65) 45%, rgb(18 19 31 / 0.8) 100%);
+}
+
+.hero-modo-contenido {
+  position: relative;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 24px;
+  padding: 28px;
+}
+
+.hero-modo-collage {
+  flex-shrink: 0;
+  width: 160px;
+  height: 160px;
+  border-radius: var(--radio);
+  overflow: hidden;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  grid-template-rows: 1fr 1fr;
+  box-shadow: 0 16px 40px rgb(0 0 0 / 0.45);
+}
+
+.hero-modo-collage img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.hero-modo-collage-vacio {
+  grid-column: 1 / -1;
+  grid-row: 1 / -1;
+  background: linear-gradient(135deg, var(--color-modo), var(--panel-alto));
+}
+
+.hero-modo h2 {
+  margin: 6px 0 4px;
+  font-size: 28px;
+  max-width: 480px;
+}
+
+.hero-modo-detalle {
+  margin: 0;
+  color: var(--tenue);
+  font-size: 14px;
+  max-width: 420px;
+}
+
+.reproductor-conteo {
+  margin: 4px 0 0;
+  color: var(--tenue);
+  font-size: 14px;
+}
+
+.reproductor-track-actual {
+  margin: 4px 0 0;
+  color: var(--acento-claro);
+  font-size: 15px;
+  font-weight: 600;
+}
+
+/* El artista acá adentro es un <button>, no texto — pedido explícito: el
+   nombre de artista tiene que ser clickable en todos lados. Mismo tamaño y
+   color que el resto de la línea, solo el subrayado al pasar el mouse avisa
+   que es interactivo. */
+.reproductor-track-actual-artista {
+  background: none;
+  border: none;
+  padding: 0;
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+}
+
+.reproductor-track-actual-artista:hover {
+  text-decoration: underline;
+}
+
+.hero-modo-botones {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 16px;
+}
+
+.hero-modo-reproducir {
+  background: var(--gradiente-primario);
+  border: none;
+  border-radius: 999px;
+  color: #fff;
+  font-family: var(--fuente-titulos);
+  font-weight: 600;
+  font-size: 14px;
+  padding: 10px 22px;
+  cursor: pointer;
+}
+
+.hero-modo-reproducir:hover {
+  opacity: 0.9;
+}
+
+.hero-modo-ver {
+  background: none;
+  border: 1px solid var(--borde);
+  border-radius: 999px;
+  color: var(--texto);
+  font-weight: 600;
+  font-size: 14px;
+  padding: 10px 22px;
+  cursor: pointer;
+}
+
+.hero-modo-ver:hover {
+  border-color: var(--acento);
+  color: var(--acento-claro);
+}
+
+.grid-artistas {
+  grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+}
+
+/* La foto es el elemento principal de la tarjeta, no un ícono chico adentro
+   de una caja — por eso el fondo/borde plano de la tarjeta es liviano y la
+   foto lleva su propia sombra/anillo para despegarse del fondo oscuro. */
+.tarjeta-artista {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  align-items: center;
+  padding: 14px 12px;
+  background: none;
+  border: 0;
+  border-radius: var(--radio);
+  color: var(--texto);
+  cursor: pointer;
+  text-align: center;
+}
+
+.tarjeta-artista:hover {
+  background: var(--panel);
+}
+
+.tarjeta-artista:hover .tarjeta-artista-foto {
+  box-shadow:
+    0 10px 26px rgb(0 0 0 / 0.5),
+    0 0 0 3px var(--acento);
+  transform: scale(1.03);
+}
+
+.tarjeta-artista-foto {
+  width: 100%;
+  max-width: 140px;
+  aspect-ratio: 1;
+  border-radius: 50%;
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--gradiente-acento);
+  color: #fff;
+  font-family: var(--fuente-titulos);
+  font-weight: 700;
+  font-size: 36px;
+  box-shadow:
+    0 10px 22px rgb(0 0 0 / 0.5),
+    0 0 0 3px var(--panel-alto);
+  transition:
+    box-shadow 0.15s ease,
+    transform 0.15s ease;
+}
+
+.tarjeta-artista-foto img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.tarjeta-artista-nombre {
+  font-weight: 600;
+  font-size: 14px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 100%;
+}
+
+.tarjeta-artista-total {
+  color: var(--tenue);
+  font-size: 12px;
+}
+
+.subejes {
+  border-top: 1px solid var(--borde);
+  display: flex;
+  flex-wrap: wrap;
+}
+
+.subejes button {
+  flex: 1;
+  background: none;
+  border: 0;
+  color: var(--acento-claro);
+  padding: 10px 14px;
+  cursor: pointer;
+  font-size: 13px;
+  text-align: left;
+}
+
+.subejes button:hover {
+  background: var(--panel-alto);
+}
+
+.subejes button span {
+  color: var(--tenue);
+  margin-left: 4px;
+}
+
+/* --- reproductor --- */
+
+.volver {
+  background: none;
+  border: 0;
+  color: var(--tenue);
+  cursor: pointer;
+  padding: 16px 0 0;
+  font-size: 14px;
+}
+
+.eyebrow {
+  margin: 8px 0 2px;
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--tenue);
+  font-weight: 600;
+}
+
+.reproductor h2 {
+  margin: 0 0 20px;
+  font-size: 24px;
+}
+
+.cola-titulo {
+  margin: 0 0 8px;
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--tenue);
+  font-weight: 600;
+}
+
+.video {
+  background: #000;
+  border-radius: var(--radio);
+  overflow: hidden;
+}
+
+/* El div inicial (contenedorRef) existe solo hasta que la IFrame API lo
+   reemplaza por un <iframe> propio; sin el segundo selector, esta regla deja
+   de aplicar apenas el player termina de crearse. */
+.video > div,
+.video > iframe {
+  width: 100%;
+  height: 100%;
+}
+
+/*
+  La app es solo audio: el video nunca se muestra.
+  Pero el iframe NO puede ocultarse con display:none ni con width/height 0 —
+  el navegador deja de componerlo y YouTube pausa la reproducción. La forma
+  segura es mantenerlo con tamaño real y sacarlo del viewport.
+*/
+.video {
+  position: fixed;
+  left: -10000px;
+  top: 0;
+  width: 320px;
+  pointer-events: none;
+}
+
+.video > div {
+  aspect-ratio: 16 / 9;
+}
+
+/* --- barra de reproducción --- */
+
+/* El fondo/borde de la barra sí ocupa todo el ancho de la ventana (se ve
+   intencional, como un piso), pero el CONTENIDO se limita al mismo ancho
+   que el resto de la app (.app, 1100px) — si no, en pantallas anchas los
+   tres bloques (info/controles/acciones) quedan pegados cada uno a su
+   borde con un hueco enorme en el medio, en vez de una barra compacta. */
+.barra {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 30;
+  display: flex;
+  justify-content: center;
+  padding: 10px 20px;
+  background: var(--panel);
+  border-top: 1px solid var(--borde);
+  backdrop-filter: blur(8px);
+}
+
+/* Grid de 3 columnas con los laterales del mismo ancho (minmax(0,1fr) en
+   ambos) — así la columna del medio (íconos + línea de tiempo) queda
+   centrada de verdad respecto de TODA la barra, no solo del espacio que le
+   sobra a la derecha de .barra-info. Mismo truco que .barra-derecha usa
+   para empujarse al borde: es una columna igual de ancha que .barra-info,
+   con su contenido alineado a la derecha. */
+.barra-interior {
+  width: 100%;
+  max-width: 1100px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+  align-items: center;
+  gap: 20px;
+}
+
+.barra-info {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.barra-info-texto {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  text-align: left;
+}
+
+.barra-portada {
+  width: 36px;
+  height: 36px;
+  border-radius: 4px;
+  object-fit: cover;
+  flex-shrink: 0;
+}
+
+/* Icono de color con iniciales del álbum — mismo lenguaje que los avatares
+   de artista sin foto (colorDeArtista) — para cuando el track no tiene
+   carátula: antes no se mostraba nada ahí, dejando un hueco. */
+.barra-portada-vacia {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #fff;
+  font-family: var(--fuente-titulos);
+  font-weight: 700;
+  font-size: 12px;
+}
+
+.barra-titulo-cancion,
+.barra-titulo-artista,
+.barra-titulo-album {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  text-align: left;
+}
+
+.barra-titulo-cancion {
+  background: none;
+  border: 0;
+  padding: 0;
+  margin: 0;
+  color: var(--texto);
+  cursor: pointer;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.barra-titulo-cancion:hover {
+  color: var(--acento-claro);
+}
+
+.barra-titulo-artista {
+  font-size: 12px;
+  color: var(--tenue);
+}
+
+.barra-titulo-album {
+  background: none;
+  border: 0;
+  padding: 0;
+  margin: 0;
+  font-size: 12px;
+  color: var(--tenue);
+  cursor: pointer;
+}
+
+.barra-titulo-album:hover {
+  color: var(--acento-claro);
+}
+
+.chip {
+  background: var(--panel-alto);
+  border: 1px solid var(--borde);
+  color: var(--tenue);
+  border-radius: 999px;
+  padding: 1px 9px;
+  font-size: 11px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 220px;
+}
+
+.barra-pos {
+  color: var(--tenue);
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+.barra-controles {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+}
+
+.barra-controles-iconos {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 18px;
+  min-width: 0;
+}
+
+/* Tercera columna del grid: mismo ancho que .barra-info (minmax(0,1fr) en
+   ambas), contenido pegado al borde derecho — volumen, cola y el menú "..."
+   son secundarios, no forman parte de "los íconos principales". */
+.barra-derecha {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 14px;
+}
+
+/* Sin esto, un contenedor angosto encoge el ancho de los íconos redondos
+   (alto fijo, ancho flexible) y el corazón queda ovalado en vez de circular. */
+.barra-controles-iconos > *,
+.barra-derecha > * {
+  flex-shrink: 0;
+}
+
+.barra-botones {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.barra-botones button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: none;
+  border: 1px solid transparent;
+  color: var(--tenue);
+  font-size: 14px;
+  padding: 5px 9px;
+  border-radius: 8px;
+  cursor: pointer;
+  min-width: 36px;
+}
+
+.barra-botones button:hover {
+  color: var(--texto);
+  background: var(--panel-alto);
+}
+
+.barra-botones button.activo {
+  color: var(--acento-claro);
+  border-color: var(--acento);
+}
+
+.barra-botones .principal {
+  background: var(--gradiente-primario);
+  border-radius: 999px;
+  color: #fff;
+  font-size: 15px;
+  padding: 8px 16px;
+}
+
+.barra-botones .principal:hover {
+  opacity: 0.9;
+  color: #fff;
+}
+
+.barra-progreso {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  /* 100% de .barra-controles, no un ancho fijo propio: así cubre exactamente
+     el mismo espacio que .barra-controles-iconos arriba (que ahora incluye
+     el ícono de cola), sin importar cuántos botones tenga esa fila. */
+  width: 100%;
+  min-width: 220px;
+}
+
+.barra-progreso .t {
+  color: var(--tenue);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  min-width: 34px;
+  text-align: center;
+}
+
+.barra-progreso input[type='range'] {
+  flex: 1;
+  -webkit-appearance: none;
+  appearance: none;
+  height: 4px;
+  border-radius: 999px;
+  background: var(--panel-alto);
+  border: 0;
+  padding: 0;
+  cursor: pointer;
+}
+
+.barra-progreso input[type='range']::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: var(--acento-claro);
+  cursor: pointer;
+}
+
+.barra-progreso input[type='range']:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.barra-volumen {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.barra-volumen input[type='range'] {
+  width: 70px;
+  -webkit-appearance: none;
+  appearance: none;
+  height: 4px;
+  border-radius: 999px;
+  background: var(--panel-alto);
+  border: 0;
+  padding: 0;
+  cursor: pointer;
+}
+
+.barra-volumen input[type='range']::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: var(--acento-claro);
+  cursor: pointer;
+}
+
+.barra-cola-grupo {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+/* Pedido explícito: fondo negro, sin borde, para diferenciarlo del resto de
+   íconos redondos (que comparten el gris de panel). Mayor especificidad que
+   la regla genérica de abajo (".barra-controles-iconos > button") para
+   ganarle. */
+/* Pedido explícito: sin fondo (el negro no combinaba con el fondo de la
+   app) — queda solo el ícono, sin el círculo relleno del resto de botones. */
+.barra-cola-grupo .barra-cola {
+  background: none;
+  border: 0;
+  /* No es hijo DIRECTO de .barra-controles-iconos (está adentro de
+     .barra-cola-grupo), así que la regla genérica de abajo no le llega —
+     hay que repetir el mismo color acá para que no herede negro/currentColor. */
+  color: var(--tenue);
+}
+
+.barra-cola-grupo .barra-cola:hover {
+  background: var(--panel-alto);
+  color: var(--texto);
+}
+
+/* Mismo botón circular en todos lados (fila de canción, fila de álbum/artista,
+   barra inferior) — antes cada zona tenía su propia forma (cuadrado plano,
+   rectángulo redondeado), pedido explícito de unificar. */
+.barra-controles-iconos > button,
+.barra-volumen button,
+.barra-mas summary,
+.barra-detalles summary {
+  width: 30px;
+  height: 30px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--panel-alto);
+  border: 1px solid var(--borde);
+  border-radius: 50%;
+  color: var(--tenue);
+  font-size: 13px;
+  padding: 0;
+  cursor: pointer;
+  list-style: none;
+  text-decoration: none;
+  line-height: 1;
+}
+
+.barra-controles-iconos > button:hover,
+.barra-volumen button:hover,
+.barra-mas summary:hover,
+.barra-detalles summary:hover {
+  color: var(--texto);
+  border-color: var(--acento);
+}
+
+.barra-controles-iconos > button.activo {
+  color: var(--acento-claro);
+  border-color: var(--acento);
+}
+
+.barra-mas {
+  position: relative;
+}
+
+.barra-mas summary::-webkit-details-marker {
+  display: none;
+}
+
+/* Mismo patrón details/summary + position:fixed que .menu-listas-panel —
+   ver el comentario largo ahí sobre por qué no alcanza con position:absolute. */
+.barra-mas-panel {
+  position: fixed;
+  z-index: 50;
+  min-width: 200px;
+  background: var(--panel-alto);
+  border: 1px solid var(--borde);
+  border-radius: var(--radio);
+  padding: 6px;
+  box-shadow: 0 12px 32px rgb(0 0 0 / 0.5);
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.barra-mas-panel > button,
+.barra-mas-panel > a,
+.barra-mas-panel > .barra-detalles > summary {
+  width: 100%;
+  height: auto;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: none;
+  border: 0;
+  border-radius: 6px;
+  color: var(--texto);
+  font-size: 13px;
+  padding: 8px 10px;
+  cursor: pointer;
+  text-decoration: none;
+  text-align: left;
+  justify-content: flex-start;
+}
+
+.barra-mas-panel > button:hover,
+.barra-mas-panel > a:hover,
+.barra-mas-panel > .barra-detalles > summary:hover {
+  background: var(--panel);
+  border-color: transparent;
+  color: var(--texto);
+}
+
+.barra-mas-panel > .barra-detalles > summary::after {
+  content: 'Información de la canción';
+}
+
+.barra-detalles {
+  position: relative;
+}
+
+.barra-detalles summary::-webkit-details-marker {
+  display: none;
+}
+
+/* Desplegable flotante de la cola (☰) — mismo patrón details/summary +
+   position:fixed que .barra-mas-panel; el summary reusa la clase .barra-cola
+   así que hereda el mismo círculo sin fondo que ya tenía como botón simple. */
+.barra-cola-flotante {
+  position: relative;
+}
+
+.barra-cola-flotante summary::-webkit-details-marker {
+  display: none;
+}
+
+/* Panel lateral, no globito: `top` y `bottom` los pone posicionar() en JS
+   (ver ColaFlotante), así el alto es todo el que queda entre el encabezado
+   fijo y la barra de reproducción. Antes era una caja de 320x368 en el medio
+   de la pantalla, que con una cola larga se veía diminuta y tapaba la lista. */
+.barra-cola-panel {
+  position: fixed;
+  z-index: 50;
+  width: 360px;
+  max-width: calc(100vw - 16px);
+  background: var(--panel-alto);
+  border: 1px solid var(--borde);
+  border-radius: var(--radio);
+  padding: 10px;
+  box-shadow: 0 12px 32px rgb(0 0 0 / 0.5);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.barra-cola-panel-cabecera {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 12px;
+  color: var(--tenue);
+  padding: 0 4px;
+}
+
+.barra-cola-panel-cabecera button {
+  background: none;
+  border: 0;
+  color: var(--acento-claro);
+  font-size: 12px;
+  cursor: pointer;
+  padding: 0;
+}
+
+.barra-cola-panel-lista {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  /* Ocupa todo lo que sobra del panel (que ahora tiene alto propio) en vez
+     de cortarse a 320px. `min-height: 0` es lo que le permite a un hijo
+     flexible encogerse por debajo de su contenido y scrollear de verdad. */
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.barra-cola-panel-lista li {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  border-radius: 8px;
+}
+
+.barra-cola-panel-lista li.activo {
+  background: var(--panel);
+}
+
+.barra-cola-panel-track {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  background: none;
+  border: 0;
+  padding: 6px 8px;
+  text-align: left;
+  cursor: pointer;
+  color: var(--texto);
+}
+
+.barra-cola-panel-titulo {
+  font-size: 13px;
+  font-weight: 500;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.barra-cola-panel-lista li.activo .barra-cola-panel-titulo {
+  color: var(--acento-claro);
+}
+
+.barra-cola-panel-artista {
+  font-size: 12px;
+  color: var(--tenue);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* .barra-cola-panel-track pasó de <button> a <div> (adentro van dos botones
+   ahora, título y artista por separado) — estos resetean el <button> nativo
+   para que se sigan viendo como el texto plano de antes, solo que clickables
+   cada uno por su lado.
+
+   `color: inherit` no es decorativo: al reset le faltaba, y un <button> sin
+   color declarado cae al `buttontext` del navegador, que en Chrome es NEGRO.
+   O sea que los títulos de la cola venían pintándose en negro sobre un panel
+   oscuro: invisibles. Se notaba solo en el título, porque el artista trae su
+   propio `color: var(--tenue)` y el track que suena lo pisa con el acento. */
+.barra-cola-panel-titulo-btn,
+.barra-cola-panel-artista-btn {
+  display: block;
+  width: 100%;
+  background: none;
+  border: 0;
+  padding: 0;
+  text-align: left;
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+}
+
+.barra-cola-panel-artista-btn:hover {
+  color: var(--acento-claro);
+  text-decoration: underline;
+}
+
+.barra-cola-panel-quitar {
+  flex-shrink: 0;
+  width: 26px;
+  height: 26px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: none;
+  border: 0;
+  border-radius: 50%;
+  color: var(--tenue);
+  cursor: pointer;
+  font-size: 12px;
+}
+
+.barra-cola-panel-quitar:hover {
+  background: var(--panel);
+  color: var(--peligro);
+}
+
+/* `position: fixed` con top/bottom/right calculados en JS (ver FichaTrack en
+   App.jsx) — mismo motivo que .menu-listas-panel: esto puede vivir en una
+   fila dentro de una lista con scroll interno, no solo en la barra de
+   reproducción fija de abajo. */
+.ficha {
+  position: fixed;
+  z-index: 50;
+  width: 300px;
+  max-width: calc(100vw - 24px);
+  max-height: calc(100vh - 32px);
+  overflow-y: auto;
+  background: var(--panel-alto);
+  border: 1px solid var(--borde);
+  border-radius: var(--radio);
+  padding: 14px 16px;
+  box-shadow: 0 12px 32px rgb(0 0 0 / 0.5);
+  font-size: 13px;
+}
+
+.ficha p {
+  margin: 0 0 10px;
+}
+
+.ficha-encabezado {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+
+.ficha-encabezado img {
+  width: 48px;
+  height: 48px;
+  border-radius: 4px;
+  object-fit: cover;
+  flex-shrink: 0;
+}
+
+.ficha-encabezado p {
+  margin: 0;
+  min-width: 0;
+}
+
+.ficha dl {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 4px 12px;
+  margin: 0;
+}
+
+.ficha dt {
+  color: var(--tenue);
+  font-size: 12px;
+}
+
+.ficha dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.ficha a {
+  color: var(--acento-claro);
+}
+
+.ficha-editar {
+  margin-top: 12px;
+  width: 100%;
+  background: var(--panel);
+  border: 1px solid var(--borde);
+  color: var(--tenue);
+  border-radius: 6px;
+  padding: 7px 10px;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.ficha-editar:hover {
+  color: var(--texto);
+  border-color: var(--acento);
+}
+
+.ficha-quitar {
+  margin-top: 8px;
+  width: 100%;
+  background: var(--panel);
+  border: 1px solid var(--borde);
+  color: var(--tenue);
+  border-radius: 6px;
+  padding: 7px 10px;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.ficha-quitar:hover {
+  color: var(--peligro);
+  border-color: var(--peligro);
+}
+
+.ficha-quitar:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+.ficha-edicion {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.ficha-edicion label {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 11px;
+  color: var(--tenue);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.ficha-edicion input {
+  width: 100%;
+  padding: 7px 9px;
+  font-size: 13px;
+  text-transform: none;
+  letter-spacing: normal;
+}
+
+.ficha-edicion-botones {
+  display: flex;
+  gap: 8px;
+}
+
+.ficha-edicion-botones button {
+  flex: 1;
+  padding: 7px 10px;
+  border-radius: 6px;
+  font-size: 12px;
+  cursor: pointer;
+  background: var(--panel);
+  border: 1px solid var(--borde);
+  color: var(--tenue);
+}
+
+.ficha-edicion-botones button[type='submit'] {
+  background: var(--acento);
+  border-color: var(--acento);
+  color: #fff;
+}
+
+.ficha-edicion-botones button:hover {
+  border-color: var(--acento);
+}
+
+.ficha-nota {
+  margin: 12px 0 0;
+  color: var(--tenue);
+  font-size: 11px;
+  line-height: 1.4;
+}
+
+.aviso {
+  color: var(--peligro);
+  font-size: 13px;
+}
+
+.aviso.buscando {
+  color: var(--acento-claro);
+}
+
+/* Banner de detección incremental (Tarea 18): franja discreta arriba del
+   contenido, no un modal — la persona sigue viendo/usando el resto de la app
+   detrás. Mismo color de alerta no agresivo que .aviso-sin-clasificar. */
+.banner-modos-nuevos {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 0 0 12px;
+  padding: 10px 16px;
+  background: var(--panel);
+  border-radius: 10px;
+  color: var(--secundario);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.banner-modos-nuevos-aceptar {
+  background: var(--acento);
+  border: 0;
+  color: #fff;
+  padding: 6px 14px;
+  border-radius: 8px;
+  cursor: pointer;
+  font-weight: 600;
+  font-size: 12px;
+}
+
+.banner-modos-nuevos-cerrar {
+  margin-left: auto;
+  background: none;
+  border: 0;
+  color: var(--tenue);
+  cursor: pointer;
+  font-size: 18px;
+  line-height: 1;
+  padding: 0 4px;
+}
+
+/* La barra fija tapa el final del contenido. */
+.app {
+  padding-bottom: 130px;
+}
+
+@media (max-width: 820px) {
+  .barra {
+    gap: 10px;
+    padding: 8px 12px;
+  }
+  .barra-interior {
+    grid-template-columns: 1fr auto;
+    grid-template-areas: 'info derecha' 'controles controles';
+  }
+  .barra-info {
+    grid-area: info;
+  }
+  .barra-derecha {
+    grid-area: derecha;
+  }
+  .barra-controles {
+    grid-area: controles;
+    width: 100%;
+  }
+  .barra-progreso {
+    width: 100%;
+  }
+  /* No es solo por iOS: en este layout los controles quedan apretados junto a
+     .barra-info en una sola fila angosta, y el slider de volumen desborda. */
+  .barra-volumen {
+    display: none;
+  }
+}
+
+.ahora {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 10px;
+  margin: 16px 0;
+}
+
+.ahora span {
+  color: var(--tenue);
+}
+
+.ahora em {
+  font-size: 13px;
+  color: var(--acento-claro);
+}
+
+.ahora em.error {
+  color: var(--peligro);
+}
+
+.controles {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 24px;
+}
+
+.controles button {
+  background: var(--panel);
+  border: 1px solid var(--borde);
+  color: var(--texto);
+  padding: 10px 18px;
+  border-radius: 8px;
+  cursor: pointer;
+}
+
+.controles button:nth-child(2) {
+  background: var(--acento);
+  border-color: var(--acento);
+  font-weight: 600;
+}
+
+/*
+  Grid, no flex: el header (.cola-header) y cada fila necesitan las MISMAS
+  columnas para quedar alineados. Canción / Artista más anchas que Álbum /
+  Año, que son secundarias y a veces vienen vacías ("—") mientras el
+  enriquecimiento de MusicBrainz sigue corriendo.
+*/
+.cola-header,
+.cola li {
+  display: grid;
+  grid-template-columns: 36px 30px minmax(0, 1.6fr) minmax(0, 1fr) 64px 110px;
+  gap: 12px;
+  align-items: center;
+}
+
+/* La cola "ahora suena" (subir/bajar/quitar) y mirar una lista de tipo
+   playlist (suma el "－" de sacar de esa lista) tienen más íconos que el
+   resto — hasta 5-7 contra los 2-3 de siempre. 110px los aplastaba (se
+   veían angostos/alargados en vez de circulares); acá se les da el ancho
+   real que necesitan. Ver colaAncha en Reproductor. */
+.cola-header.cola-header-ancha,
+.cola.cola-ancha li {
+  grid-template-columns: 36px 30px minmax(0, 1.6fr) minmax(0, 1fr) 64px 210px;
+}
+
+/* La 4ta columna (64px) alcanza para el ícono de cronómetro de Cola/Buscador,
+   pero no para texto como "hace 6 días" — se cortaba a la mitad. Historial
+   tiene su propio modificador (no se toca el genérico: lo comparten Cola y
+   Buscador, que sí necesitan esa columna angosta). */
+.cola-header.cola-header-historial,
+.cola.cola-historial li {
+  grid-template-columns: 36px 30px minmax(0, 1.6fr) minmax(0, 1fr) 96px 110px;
+}
+
+.cola-header {
+  padding: 0 16px 6px;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--tenue);
+}
+
+.cola-cabecera {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.cola-cabecera .cola-titulo {
+  margin: 0;
+}
+
+.toggle-orden {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  background: var(--panel);
+  border: 1px solid var(--borde);
+  color: var(--tenue);
+  border-radius: 999px;
+  padding: 4px 12px;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.toggle-orden:hover {
+  color: var(--texto);
+  border-color: var(--acento);
+}
+
+.toggle-orden.activo {
+  color: var(--acento-claro);
+  border-color: var(--acento);
+}
+
+/* Misma forma que los demás .toggle-orden (son todos "opciones de navegación
+   de la lista"), pero con relleno: a diferencia de filtrar/agrupar, este
+   dispara reproducción — necesita leerse como una acción, no como un filtro. */
+.accion-reproducir {
+  background: var(--acento);
+  border-color: var(--acento);
+  color: #fff;
+}
+
+.accion-reproducir:hover {
+  color: #fff;
+  opacity: 0.9;
+}
+
+.accion-reproducir:disabled {
+  background: var(--panel);
+  border-color: var(--borde);
+  color: var(--tenue);
+  cursor: default;
+  opacity: 0.5;
+}
+
+.cola-controles {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 10px 0;
+  flex-wrap: wrap;
+}
+
+.cola-filtro {
+  flex: 1;
+  min-width: 160px;
+  max-width: 320px;
+  padding: 6px 12px;
+  font-size: 13px;
+}
+
+/* Desplegable propio de "Agrupar" — mismo pill que .toggle-orden para el
+   cerrado, panel propio (paleta de la app, no el listado nativo del <select>)
+   para el abierto. */
+.selector-agrupar {
+  position: relative;
+}
+
+.selector-agrupar summary {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  background: var(--panel);
+  border: 1px solid var(--borde);
+  color: var(--tenue);
+  border-radius: 999px;
+  padding: 4px 12px;
+  font-size: 12px;
+  cursor: pointer;
+  list-style: none;
+}
+
+.selector-agrupar summary::after {
+  content: '▾';
+  margin-left: 2px;
+  font-size: 10px;
+}
+
+.selector-agrupar summary::-webkit-details-marker {
+  display: none;
+}
+
+.selector-agrupar summary:hover {
+  color: var(--texto);
+  border-color: var(--acento);
+}
+
+.selector-agrupar.activo summary {
+  color: var(--acento-claro);
+  border-color: var(--acento);
+}
+
+.selector-agrupar-panel {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  z-index: 20;
+  min-width: 180px;
+  background: var(--panel-alto);
+  border: 1px solid var(--borde);
+  border-radius: var(--radio);
+  padding: 6px;
+  box-shadow: 0 12px 32px rgb(0 0 0 / 0.5);
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.selector-agrupar-panel button {
+  width: 100%;
+  background: none;
+  border: 0;
+  border-radius: 6px;
+  color: var(--texto);
+  font-size: 13px;
+  padding: 8px 10px;
+  cursor: pointer;
+  text-align: left;
+}
+
+.selector-agrupar-panel button:hover {
+  background: var(--panel);
+}
+
+.selector-agrupar-panel button.activo {
+  color: var(--acento-claro);
+}
+
+.cola-conteo-filtrado {
+  color: var(--tenue);
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.ordenable {
+  cursor: pointer;
+  user-select: none;
+}
+
+.ordenable:hover {
+  color: var(--texto);
+}
+
+.cola-header-titulo {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.ordenable-sub {
+  font-size: 10px;
+  opacity: 0.8;
+}
+
+/* Antes tenía su propio límite (`max-height: 60vh; overflow-y: auto`) para
+   no estirar la página con cientos de filas — eso generaba un segundo
+   scroll independiente del de `body` (dos scrollbars a la vez en pantallas
+   largas). Ahora `body` es el único scroll de toda la pantalla, así que
+   esta lista simplemente crece con su contenido. */
+
+.cola-grupos {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.grupo-artista-titulo {
+  margin: 0 0 6px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--tenue);
+}
+
+.grupo-artista-titulo span {
+  font-weight: 400;
+  opacity: 0.7;
+  margin-left: 4px;
+}
+
+.cola {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  border: 1px solid var(--borde);
+  border-radius: var(--radio);
+}
+
+.cola li {
+  padding: 10px 16px;
+  border-bottom: 1px solid var(--borde);
+  font-size: 14px;
+}
+
+/* Vive en .c-acciones, mismo lugar que antes ocupaban las flechas ▲▼
+   (ya sacadas — el drag las reemplaza, no hacía falta duplicar). Mismo
+   círculo que el resto de los botones de esa fila, pero un poco más
+   grande: es el único gesto para reordenar ahora, tiene que notarse. */
+.c-acciones > .c-arrastrar {
+  width: 30px;
+  height: 30px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--panel-alto);
+  border: 1px solid var(--borde);
+  border-radius: 50%;
+  color: var(--tenue);
+  font-size: 16px;
+  cursor: grab;
+}
+
+.c-acciones > .c-arrastrar:hover {
+  color: var(--texto);
+  border-color: var(--acento);
+}
+
+.c-acciones > .c-arrastrar:active {
+  cursor: grabbing;
+}
+
+/* El panel flotante (☰ de la barra) es flex, no grid — el handle es un
+   ítem más de la fila, no hace falta sacarlo del flujo. Siempre visible
+   acá (no solo al hover): el panel es chico, el gesto de arrastrar es
+   menos obvio sin una pista visible todo el tiempo. */
+.barra-cola-panel-lista li .c-arrastrar {
+  flex-shrink: 0;
+  width: 14px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--tenue);
+  cursor: grab;
+  font-size: 13px;
+}
+
+.cola li.cola-arrastrando,
+.barra-cola-panel-lista li.cola-arrastrando {
+  opacity: 0.5;
+}
+
+.cola li.cola-drop-sobre,
+.barra-cola-panel-lista li.cola-drop-sobre {
+  box-shadow: inset 0 2px 0 var(--acento);
+}
+
+/* Antes el redondeo salía de un overflow:hidden en .cola, pero eso también
+   recortaba el menú "..." (position:absolute) apenas se abría en un grupo
+   chico (agrupado por artista, muchos grupos de 1-2 canciones) — el popover
+   necesita escapar de la fila para no quedar cortado. */
+.cola li:first-child {
+  border-top-left-radius: var(--radio);
+  border-top-right-radius: var(--radio);
+}
+
+.cola li:last-child {
+  border-bottom-left-radius: var(--radio);
+  border-bottom-right-radius: var(--radio);
+  border-bottom: 0;
+}
+
+.cola li:hover {
+  background: var(--panel);
+}
+
+.cola li.actual {
+  background: var(--panel-alto);
+  box-shadow: inset 3px 0 0 var(--acento);
+}
+
+.c-titulo,
+.c-album,
+.c-anio {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+/* Título + artista viven en la misma celda apiladas (antes eran dos columnas
+   de grid separadas) — el artista es contexto del título, no un dato al
+   mismo nivel, así que una tipografía más chica y tenue alcanza para
+   diferenciarlo sin gastar una columna entera. */
+/* Miniatura antes del play — pedido explícito: las filas de canción eran la
+   única zona de la app sin ninguna imagen, mientras el resto (tarjetas de
+   lista, vista de álbum) ya la usa. Mismo fallback que .barra-portada-vacia
+   (color + iniciales del ÁLBUM, no del artista — un artista con varios
+   álbumes distintos igual se distingue de un vistazo). */
+.c-portada {
+  width: 32px;
+  height: 32px;
+  border-radius: 6px;
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.c-portada img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.c-portada-vacia {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #fff;
+  font-family: var(--fuente-titulos);
+  font-weight: 700;
+  font-size: 11px;
+}
+
+/* Play a la izquierda de la fila, no agrupado con el resto de acciones a la
+   derecha — es la acción más usada de la fila, mismo motivo que en
+   .album-track-numero. Mismo círculo que el resto de botones de ícono. */
+.c-play {
+  width: 26px;
+  height: 26px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--panel-alto);
+  border: 1px solid var(--borde);
+  border-radius: 50%;
+  color: var(--tenue);
+  font-size: 11px;
+  padding: 0;
+  cursor: pointer;
+}
+
+.c-play:hover {
+  color: var(--texto);
+  border-color: var(--acento);
+}
+
+.cola li.actual .c-play {
+  color: var(--acento-claro);
+  border-color: var(--acento);
+}
+
+.c-titulo {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+}
+
+.c-titulo-texto {
+  font-weight: 500;
+  color: var(--texto);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.c-artista {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  cursor: pointer;
+  font-size: 12px;
+  color: var(--tenue);
+}
+
+/* Mismo look que el texto plano de siempre — el link solo se nota al pasar
+   el mouse, no grita "soy un botón" en medio de la fila. */
+.c-artista-link {
+  background: none;
+  border: 0;
+  padding: 0;
+  margin: 0;
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+}
+
+.c-artista-link:hover {
+  color: var(--acento-claro);
+  text-decoration: underline;
+}
+
+.c-album,
+.c-anio {
+  color: var(--tenue);
+  font-size: 13px;
+}
+
+.c-acciones {
+  display: flex;
+  gap: 2px;
+  justify-content: flex-end;
+}
+
+/* Combinador directo (`>`), no descendiente: FichaTrack cuelga de acá vía
+   <details>, y su panel (.ficha) tiene botones de TEXTO propios (álbum,
+   artista, "Corregir datos"...) — con el selector de descendiente esos
+   también quedaban forzados a este círculo de 26px, aplastando el texto
+   en varias líneas de un carácter cada una (aunque el panel escape
+   visualmente con position:fixed, en el DOM sigue siendo hijo de acá). */
+.c-acciones > button {
+  width: 26px;
+  height: 26px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--panel-alto);
+  border: 1px solid var(--borde);
+  border-radius: 50%;
+  color: var(--tenue);
+  font-size: 12px;
+  padding: 0;
+  cursor: pointer;
+}
+
+.c-acciones > button:hover:not(:disabled) {
+  color: var(--texto);
+  border-color: var(--acento);
+}
+
+.c-acciones > button:disabled {
+  opacity: 0.25;
+  cursor: default;
+}
+
+.c-favorito.activo {
+  color: var(--acento-claro);
+  border-color: var(--acento);
+}
+
+.c-album-vacio {
+  cursor: default;
+}
+
+/* Mismo patrón details/summary que .barra-detalles/.ficha: un popover sin
+   JS de posicionamiento propio, ya probado en la barra de reproducción. */
+.menu-listas {
+  position: relative;
+  display: inline-block;
+}
+
+.menu-listas summary {
+  background: none;
+  border: 1px solid transparent;
+  color: var(--tenue);
+  font-size: 11px;
+  padding: 4px 6px;
+  border-radius: 6px;
+  cursor: pointer;
+  list-style: none;
+}
+
+.menu-listas summary:hover {
+  color: var(--texto);
+  background: var(--panel-alto);
+}
+
+.menu-listas summary::-webkit-details-marker {
+  display: none;
+}
+
+/* `position: fixed` con top/right calculados en JS (ver MenuListas en
+   App.jsx), no top:100%/right:0 puro: este menú vive dentro de listas
+   largas, y position:absolute ahí se recorta contra el borde de la ventana
+   o se solapa con la fila propia cuando no hay espacio debajo. fixed no lo
+   clipea ningún ancestro con overflow. */
+.menu-listas-panel {
+  position: fixed;
+  z-index: 50;
+  min-width: 180px;
+  max-width: min(280px, calc(100vw - 24px));
+  max-height: min(360px, calc(100vh - 32px));
+  overflow-y: auto;
+  background: var(--panel-alto);
+  border: 1px solid var(--borde);
+  border-radius: var(--radio);
+  padding: 8px;
+  box-shadow: 0 12px 32px rgb(0 0 0 / 0.5);
+}
+
+.menu-listas-titulo {
+  margin: 4px 4px 2px;
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--tenue);
+}
+
+.menu-listas-titulo-listas {
+  margin-top: 10px;
+  padding-top: 8px;
+  border-top: 1px solid var(--borde);
+}
+
+.menu-listas-panel label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 4px;
+  font-size: 13px;
+  color: var(--texto);
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.menu-listas-panel input[type='checkbox'] {
+  accent-color: var(--acento);
+}
+
+/* --- buscador --- */
+
+.buscador-input {
+  padding: 10px 14px;
+  font-size: 15px;
+}
+
+/* Sin esto, el anillo de foco por defecto del navegador queda a criterio
+   del motor: en Chrome normal se ve gris/blanco discreto, pero en el
+   Chromium embebido de Electron toma el color de acento del sistema
+   operativo (dorado/amarillo en esta máquina) — se ve roto, no combina con
+   la paleta de marca. Estos inputs además arrancan con autoFocus (Artistas,
+   Álbumes), así que el foco se ve SIEMPRE que se entra a esas pantallas,
+   no solo al clickear. */
+.buscador-input:focus {
+  outline: none;
+  border-color: var(--acento);
+}
+
+/* Input + cantidad (+ orden, en Artistas) en la MISMA fila — pedido
+   explícito: el número va al lado de la búsqueda, no en una fila aparte
+   debajo. El input crece, el resto se queda a su ancho natural. */
+.buscador-filtro-fila {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin: 12px 0 20px;
+}
+
+.buscador-filtro-fila .buscador-input {
+  flex: 1;
+  min-width: 200px;
+}
+
+.buscador-filtro-total {
+  white-space: nowrap;
+  margin: 0;
+}
+
+/* Listas no tiene filtro propio (son pocas) — el conteo solo, sin fila. */
+.buscador-filtro-total-sola {
+  margin: 12px 0 16px;
+}
+
+.buscador-artistas-orden {
+  display: flex;
+  gap: 8px;
+}
+
+.historial-subtitulo {
+  margin: 24px 0 8px;
+  font-size: 13px;
+  color: var(--tenue);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.ranking-modos {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.ranking-modos li button {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 14px;
+  background: var(--panel);
+  border: 1px solid var(--borde);
+  border-radius: var(--radio);
+  color: var(--texto);
+  font-size: 14px;
+  cursor: pointer;
+  text-align: left;
+}
+
+.ranking-modos li button:hover:not(:disabled) {
+  background: var(--panel-alto);
+  border-color: var(--acento);
+}
+
+.ranking-modos li button:disabled {
+  cursor: default;
+  opacity: 0.6;
+}
+
+.ranking-modos .conteo {
+  color: var(--tenue);
+  font-size: 12px;
+  flex-shrink: 0;
+}
+
+.lista-externa {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.lista-externa li {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 12px;
+  background: var(--panel);
+  border: 1px solid var(--borde);
+  border-radius: var(--radio);
+}
+
+.lista-externa img {
+  width: 48px;
+  height: 48px;
+  border-radius: 4px;
+  object-fit: cover;
+  flex-shrink: 0;
+}
+
+.externa-info {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  flex: 1;
+}
+
+.externa-info strong {
+  color: var(--texto);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.externa-info span {
+  color: var(--tenue);
+  font-size: 12px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.externa-artista-link {
+  background: none;
+  border: none;
+  padding: 0;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+
+.externa-artista-link:hover {
+  color: var(--acento-claro);
+  text-decoration: underline;
+}
+
+.externa-acciones {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.externa-escuchar {
+  flex-shrink: 0;
+  width: 30px;
+  height: 30px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--panel-alto);
+  border: 1px solid var(--borde);
+  border-radius: 50%;
+  color: var(--tenue);
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.externa-escuchar:hover {
+  color: var(--texto);
+  border-color: var(--acento);
+}
+
+.externa-acciones > button:not(.externa-escuchar) {
+  flex-shrink: 0;
+  background: var(--acento);
+  border: 1px solid var(--acento);
+  color: #fff;
+  border-radius: 6px;
+  padding: 7px 12px;
+  font-size: 12px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.externa-acciones > button:not(.externa-escuchar):hover {
+  opacity: 0.9;
+}
+
+.lista-externa .externa-ok {
+  background: none;
+  border: 1px solid var(--acento);
+  color: var(--acento-claro);
+}
+
+.externa-estado {
+  flex-shrink: 0;
+  color: var(--tenue);
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.externa-error {
+  color: var(--peligro, #e5484d);
+}
+
+.c-preview-estado {
+  font-size: 12px;
+  color: var(--tenue);
+  white-space: nowrap;
+}
+
+.c-preview-error {
+  color: var(--peligro, #e5484d);
+}
+
+/* Ya está en la biblioteca: se sigue pudiendo reproducir, pero atenuada para
+   que el ojo vaya primero a lo que realmente hace falta agregar. */
+.externa-repetida {
+  opacity: 0.7;
+}
+
+.externa-clasificar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.externa-favorito {
+  width: 30px;
+  height: 30px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--panel-alto);
+  border: 1px solid var(--borde);
+  border-radius: 6px;
+  color: var(--tenue);
+  cursor: pointer;
+  font-size: 15px;
+}
+
+.externa-favorito:hover:not(:disabled) {
+  color: var(--acento-claro);
+  border-color: var(--acento);
+}
+
+.externa-favorito:disabled {
+  color: var(--acento-claro);
+  cursor: default;
+}
+
+.externa-clasificar select {
+  background: var(--panel-alto);
+  border: 1px solid var(--borde);
+  color: var(--texto);
+  border-radius: 6px;
+  padding: 6px 8px;
+  font-size: 12px;
+  max-width: 140px;
+}
+
+.pie {
+  color: var(--tenue);
+  font-size: 13px;
+  text-align: center;
+}
+
+/* --- sin clasificar --- */
+
+.administrar h2 {
+  margin: 8px 0 20px;
+  font-size: 24px;
+}
+
+.tabs {
+  display: flex;
+  gap: 4px;
+  border-bottom: 1px solid var(--borde);
+  margin-bottom: 20px;
+}
+
+.tabs button {
+  background: none;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  color: var(--tenue);
+  padding: 10px 4px;
+  margin-right: 20px;
+  cursor: pointer;
+  font-size: 14px;
+  font-weight: 500;
+}
+
+.tabs button:hover {
+  color: var(--texto);
+}
+
+.tabs button.activo {
+  color: var(--texto);
+  border-bottom-color: var(--acento);
+}
+
+.tabs .badge {
+  margin-left: 6px;
+}
+
+.ayuda {
+  color: var(--tenue);
+  font-size: 14px;
+  margin-top: 0;
+}
+
+.backup {
+  max-width: 480px;
+}
+
+.ayuda-seccion {
+  max-width: 620px;
+  display: flex;
+  flex-direction: column;
+  gap: 22px;
+  margin-top: 16px;
+}
+
+.ayuda-seccion h3 {
+  font-size: 14px;
+  margin: 0 0 6px;
+  color: var(--texto);
+}
+
+.ayuda-bloque {
+  display: flex;
+  gap: 14px;
+  align-items: flex-start;
+}
+
+.ayuda-bloque-texto {
+  flex: 1;
+  min-width: 0;
+}
+
+/* Los elementos visuales (botón, mock, chips) van DENTRO del flujo normal
+   del texto, debajo del párrafo — no flotando a la derecha a una altura
+   arbitraria (pedido explícito: "organizalo que quede bonito", la columna
+   flotante quedaba desalineada con el link de abajo). */
+.ayuda-cta-visual {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 10px;
+  padding: 10px 18px;
+  border-radius: 999px;
+  border: none;
+  background: var(--gradiente-primario);
+  color: #fff;
+  font-weight: 600;
+  font-size: 14px;
+  cursor: pointer;
+}
+
+.ayuda-cta-visual:hover {
+  opacity: 0.9;
+}
+
+/* Mismo look que .submenu button.submenu-explorar del menú principal, pedido
+   explícito ("similar al que tenemos en el menú principal") — reproducido
+   acá porque ese botón real vive adentro de <nav class="submenu"> y ese
+   selector no aplica fuera de ahí. */
+.ayuda-explorar-preview {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 10px;
+  padding: 6px 12px;
+  border-radius: 999px;
+  border: 1px solid transparent;
+  color: #fff;
+  background: var(--gradiente-primario);
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.ayuda-explorar-preview:hover {
+  opacity: 0.9;
+}
+
+.ayuda-visual-mock {
+  margin: 10px 0;
+  padding: 10px 14px;
+  background: var(--panel);
+  border: 1px solid var(--borde);
+  border-radius: 10px;
+  max-width: 260px;
+}
+
+.ayuda-visual-mock-texto {
+  margin: 0 0 8px;
+  color: var(--secundario);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.ayuda-visual-mock-barra {
+  height: 6px;
+  border-radius: 999px;
+  background: var(--panel-alto);
+  overflow: hidden;
+}
+
+.ayuda-visual-mock-barra-relleno {
+  height: 100%;
+  width: 8%;
+  border-radius: 999px;
+  background: var(--gradiente-primario);
+}
+
+.ayuda-modos-preview {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 10px 0;
+}
+
+.ayuda-modo-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 12px 6px 6px;
+  border-radius: 999px;
+  background: var(--panel);
+  border: 1px solid var(--borde);
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--texto);
+}
+
+.ayuda-modo-chip-color {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.ayuda-bloque-icono {
+  flex-shrink: 0;
+  width: 36px;
+  height: 36px;
+  border-radius: 999px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--panel-alto);
+  color: var(--acento-claro);
+}
+
+.ayuda-link {
+  display: inline-block;
+  margin-top: 8px;
+  background: none;
+  border: none;
+  padding: 0;
+  color: var(--acento-claro);
+  font: inherit;
+  font-weight: 500;
+  cursor: pointer;
+  text-decoration: underline;
+}
+
+.ayuda-reboton {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  align-self: flex-start;
+  padding: 8px 16px;
+  border-radius: 999px;
+  border: 1px solid var(--borde);
+  background: none;
+  color: var(--tenue);
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.ayuda-reboton:hover {
+  color: var(--texto);
+  background: var(--panel);
+}
+
+.backup-opciones {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 12px;
+}
+
+.backup-descargar {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 18px;
+  background: var(--gradiente-primario);
+  color: #fff;
+  border-radius: var(--radio);
+  font-weight: 600;
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.backup-descargar:hover {
+  opacity: 0.9;
+}
+
+/* CSV y Texto son formatos secundarios (no restauran todo, ver el texto de
+   abajo) — con el mismo gradiente que JSON, los tres competían por atención
+   por igual y se veía recargado. Mismo lenguaje visual que .submenu button:
+   borde + texto tenue, sin relleno de color. */
+.backup-descargar-secundario {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 9px 16px;
+  background: none;
+  border: 1px solid var(--borde);
+  color: var(--tenue);
+  border-radius: var(--radio);
+  font-weight: 500;
+  font-size: 14px;
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.backup-descargar-secundario:hover {
+  color: var(--texto);
+  background: var(--panel);
+}
+
+.backup-restaurar-titulo {
+  margin-top: 28px;
+  font-size: 14px;
+}
+
+/* A propósito NO usa el degradado de los botones primarios: esto pisa toda
+   la biblioteca actual, no debería invitar a tocarlo igual que "descargar
+   JSON". Mismo estilo secundario (borde), pero color de alerta en vez de
+   tenue — ni tan discreto que pase desapercibido, ni tan destacado como un
+   CTA normal. */
+.backup-restaurar-boton {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 8px;
+  padding: 9px 16px;
+  background: none;
+  border: 1px solid var(--peligro);
+  color: var(--peligro);
+  border-radius: var(--radio);
+  font-weight: 500;
+  font-size: 14px;
+  cursor: pointer;
+}
+
+.backup-restaurar-boton:hover {
+  background: color-mix(in srgb, var(--peligro) 12%, transparent);
+}
+
+.backup-restaurar-boton input {
+  display: none;
+}
+
+/* Reinicio total (Tarea 19): mismo criterio visual que .backup-restaurar-boton
+   (color de alerta, no el degradado primario) — acá pisa TODO, no solo la
+   biblioteca, así que el mismo espíritu de "ni discreto ni invitante". */
+.reinicio-total {
+  max-width: 480px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.reinicio-total-checkbox {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 6px 0;
+  font-size: 13px;
+  color: var(--tenue);
+}
+
+.reinicio-total-input {
+  margin: 4px 0 12px;
+  padding: 9px 12px;
+  border: 1px solid var(--borde);
+  border-radius: var(--radio);
+  background: var(--panel);
+  color: var(--texto);
+  font: inherit;
+  max-width: 200px;
+}
+
+.reinicio-total-boton {
+  align-self: flex-start;
+  padding: 9px 16px;
+  background: none;
+  border: 1px solid var(--peligro);
+  color: var(--peligro);
+  border-radius: var(--radio);
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.reinicio-total-boton:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--peligro) 12%, transparent);
+}
+
+.reinicio-total-boton:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.aplicar-unanimes {
+  display: block;
+  width: 100%;
+  margin: 12px 0;
+  padding: 10px 14px;
+  background: color-mix(in srgb, var(--acento) 18%, var(--panel-alto));
+  border: 1px solid var(--acento);
+  color: var(--acento-claro);
+  border-radius: var(--radio);
+  font-size: 13px;
+  font-weight: 500;
+  text-align: left;
+  cursor: pointer;
+}
+
+.aplicar-unanimes:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--acento) 30%, var(--panel-alto));
+}
+
+.aplicar-unanimes:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+.cargar-biblioteca,
+.cargar-musica-local {
+  max-width: 560px;
+}
+
+/* Mismo lenguaje visual que .backup-descargar: degradado = "botón primario
+   de la pantalla", consistente en toda la app (antes este era un color
+   sólido plano, distinto de los demás CTAs). */
+.cargar-boton {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin: 12px 0;
+  padding: 10px 18px;
+  background: var(--gradiente-primario);
+  color: #fff;
+  border-radius: var(--radio);
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.cargar-boton:hover {
+  opacity: 0.9;
+}
+
+.cargar-boton input {
+  display: none;
+}
+
+.cargar-resultado {
+  margin-top: 16px;
+  padding: 14px 16px;
+  background: var(--panel-alto);
+  border: 1px solid var(--borde);
+  border-radius: var(--radio);
+}
+
+.cargar-resultado ul {
+  margin: 8px 0 0;
+  padding-left: 20px;
+}
+
+.sin-clasificar ul {
+  list-style: none;
+  padding: 0;
+  border: 1px solid var(--borde);
+  border-radius: var(--radio);
+  overflow: hidden;
+}
+
+.sin-clasificar li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 10px 16px;
+  border-bottom: 1px solid var(--borde);
+  font-size: 14px;
+}
+
+.sc-track {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sc-escuchar {
+  flex-shrink: 0;
+  width: 26px;
+  height: 26px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--panel-alto);
+  border: 1px solid var(--borde);
+  border-radius: 50%;
+  color: var(--tenue);
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.sc-escuchar:hover {
+  color: var(--texto);
+  border-color: var(--acento);
+}
+
+.sc-favorito,
+.sc-quitar {
+  flex-shrink: 0;
+  width: 26px;
+  height: 26px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--panel-alto);
+  border: 1px solid var(--borde);
+  border-radius: 50%;
+  color: var(--tenue);
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.sc-favorito:hover,
+.sc-quitar:hover {
+  color: var(--texto);
+  border-color: var(--acento);
+}
+
+.sc-favorito.activo {
+  color: var(--acento-claro);
+  border-color: var(--acento);
+}
+
+.sc-quitar:hover {
+  color: var(--peligro);
+  border-color: var(--peligro);
+}
+
+.sin-clasificar li.actual {
+  background: var(--panel-alto);
+  box-shadow: inset 3px 0 0 var(--acento);
+}
+
+.sin-clasificar li.actual .sc-escuchar {
+  color: var(--acento-claro);
+  border-color: var(--acento);
+}
+
+.sc-acciones {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.sc-sugeridos {
+  display: flex;
+  gap: 6px;
+}
+
+/* Solo aparece cuando hay otro track del mismo artista ya clasificado — no es
+   una recomendación por audio, es un atajo de un clic para el caso en que ya
+   sabemos dónde va este artista. */
+.chip-sugerido {
+  background: color-mix(in srgb, var(--acento) 18%, var(--panel-alto));
+  border: 1px solid var(--acento);
+  color: var(--acento-claro);
+  border-radius: 999px;
+  padding: 5px 10px;
+  font-size: 12px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.chip-sugerido:hover {
+  background: color-mix(in srgb, var(--acento) 30%, var(--panel-alto));
+}
+
+.chip-sugerido span {
+  opacity: 0.75;
+  margin-left: 3px;
+}
+
+.sin-clasificar li:last-child {
+  border-bottom: 0;
+}
+
+select,
+input {
+  background: var(--panel-alto);
+  border: 1px solid var(--borde);
+  color: var(--texto);
+  padding: 8px 10px;
+  border-radius: 8px;
+  font-size: 14px;
+}
+
+/* --- editor --- */
+
+.crear {
+  display: flex;
+  gap: 8px;
+  margin: 16px 0 24px;
+  flex-wrap: wrap;
+}
+
+.crear input {
+  flex: 1;
+  min-width: 220px;
+}
+
+.crear button {
+  background: var(--acento);
+  border: 0;
+  color: #fff;
+  padding: 8px 20px;
+  border-radius: 8px;
+  cursor: pointer;
+  font-weight: 600;
+}
+
+/* Solo se renderiza cuando hay algo real para revisar (>0) — color de
+   alerta (naranja, no el rosa/acento normal de la app) para que se note
+   entre el resto de Configuración sin ser tan agresivo como el rojo de
+   "peligro" (esto no es destructivo, solo pendiente). */
+.aviso-sin-clasificar {
+  color: var(--secundario);
+  font-size: 13px;
+  font-weight: 600;
+  margin: 4px 0 16px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+/* Variante para la copia única que vive arriba de <header>, visible en toda
+   la app sin importar la pantalla — pegada arriba como .cabecera (mismo
+   fondo/borde) para que no se pierda al hacer scroll. */
+.aviso-app-wide {
+  margin: 0;
+  padding: 8px 0;
+  background: var(--fondo);
+  border-bottom: 1px solid var(--borde);
+  justify-content: center;
+  /* Cuando este aviso se muestra, ocupa la franja de arriba de la ventana
+     (antes ahí estaba <header>, que sí tiene drag) — sin esto, la ventana
+     deja de poder arrastrarse desde arriba mientras el aviso está visible. */
+  -webkit-app-region: drag;
+}
+
+/* Botón inline junto al aviso pasivo — mismo lugar, ninguno nuevo: abre
+   ClasificacionAsistida solo cuando la persona lo toca (Tarea 17). */
+.clasificar-ahora {
+  background: none;
+  border: 1px solid var(--secundario);
+  border-radius: 999px;
+  color: var(--secundario);
+  padding: 3px 10px;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.clasificar-ahora:hover {
+  background: var(--secundario);
+  color: var(--fondo);
+}
+
+.editor table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 14px;
+}
+
+.editor th {
+  text-align: left;
+  color: var(--tenue);
+  font-weight: 500;
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--borde);
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.editor td {
+  padding: 10px;
+  border-bottom: 1px solid var(--borde);
+}
+
+/* Reseteo total de <button> para que se vea como el resto de los <th>
+   (mismo tamaño/mayúsculas/tracking, heredado del padre) y solo se note
+   clickeable al pasar el mouse — no como un botón de UI aparte. */
+.th-ordenable {
+  background: none;
+  border: 0;
+  padding: 0;
+  margin: 0;
+  font: inherit;
+  color: inherit;
+  text-transform: inherit;
+  letter-spacing: inherit;
+  cursor: pointer;
+}
+
+.th-ordenable:hover {
+  color: var(--texto);
+}
+
+.editor tr.inactivo {
+  opacity: 0.45;
+}
+
+.editor code {
+  display: block;
+  color: var(--tenue);
+  font-size: 11px;
+}
+
+.editor .sub {
+  color: var(--acento-claro);
+}
+
+.link-editar {
+  background: none;
+  border: none;
+  color: var(--texto);
+  font: inherit;
+  padding: 0;
+  cursor: pointer;
+  text-align: left;
+}
+
+.link-editar:hover {
+  color: var(--acento-claro);
+}
+
+.editar-nombre {
+  background: var(--panel-alto);
+  border: 1px solid var(--acento);
+  color: var(--texto);
+  border-radius: 6px;
+  padding: 4px 8px;
+  font-size: 14px;
+  width: 100%;
+  max-width: 240px;
+}
+
+/* `display:flex` directo en un <td> lo saca del algoritmo normal de altura
+   de fila de las tablas (deja de "estirarse" al alto de sus hermanas) — la
+   fila de "favoritos", con menos contenido, quedaba más baja que el resto y
+   su contenido se corría hacia arriba dentro de la fila. Por eso el flex
+   vive en un <div> ADENTRO del <td>, y el <td> usa vertical-align normal. */
+.acciones-celda {
+  vertical-align: middle;
+}
+
+.acciones {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  /* flex-start, no flex-end: con menos botones en una fila (ej. la fila de
+     "favoritos", que solo tiene "Ver lista" + "no eliminable") el grupo
+     entero se corría a la derecha y el primer botón quedaba en una posición
+     distinta en cada fila — desalineado contra las demás filas. */
+  justify-content: flex-start;
+}
+
+.acciones button {
+  background: var(--panel-alto);
+  border: 1px solid var(--borde);
+  color: var(--texto);
+  padding: 5px 12px;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 13px;
+}
+
+.acciones .peligro:hover {
+  border-color: var(--peligro);
+  color: var(--peligro);
+}
+
+.nota {
+  color: var(--tenue);
+  font-size: 12px;
+}
+
+@media (max-width: 600px) {
+  /* Álbum/Año son las columnas secundarias, y encima muchas veces todavía
+     vacías (enriquecimiento en curso): en una pantalla angosta, Canción +
+     Artista + acciones de editar cola son más legibles que 5 columnas
+     apretadas. Las acciones se quedan — editar la cola desde el celular
+     tiene que seguir funcionando. */
+  .cola-header,
+  .cola li {
+    grid-template-columns: 36px 30px minmax(0, 1fr) 84px;
+  }
+  .cola-header.cola-header-ancha,
+  .cola.cola-ancha li {
+    grid-template-columns: 36px 30px minmax(0, 1fr) 150px;
+  }
+  /* Sin esto, la variante "historial" (mayor especificidad que .cola-header a
+     secas) sigue con sus 6 columnas de escritorio en el celular — el texto
+     de "Recientes" queda apretado entre columnas y se solapa. */
+  .cola-header.cola-header-historial,
+  .cola.cola-historial li {
+    grid-template-columns: 36px 30px minmax(0, 1fr) 84px;
+  }
+  .c-album,
+  .c-anio {
+    display: none;
+  }
+  .sin-clasificar li {
+    flex-direction: column;
+    align-items: stretch;
+  }
+}
+
+/* --- álbum --- */
+
+.ficha-album-link {
+  background: none;
+  border: none;
+  padding: 0;
+  color: var(--acento-claro);
+  font: inherit;
+  cursor: pointer;
+  text-align: left;
+}
+
+.ficha-album-link:hover {
+  text-decoration: underline;
+}
+
+.ficha-artista-link {
+  background: none;
+  border: none;
+  padding: 0;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+  text-align: left;
+}
+
+.ficha-artista-link:hover {
+  color: var(--acento-claro);
+  text-decoration: underline;
+}
+
+/* Mismo patrón que .ficha-artista-link — crédito de un track distinto al
+   artista del álbum (compilados), ahora clickable en vez de texto plano. */
+.album-track-artista-link {
+  background: none;
+  border: none;
+  padding: 0;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+
+.album-track-artista-link:hover {
+  color: var(--acento-claro);
+  text-decoration: underline;
+}
+
+.album {
+  max-width: 760px;
+}
+
+/* Con el lateral de "Más álbumes"/"Parecidos" (.modos-layout, mismo patrón
+   que el Home) el ancho de 760px de arriba aprieta TODA la grilla, lateral
+   incluido, dejando un hueco vacío a la derecha en vez de que el lateral
+   use ese espacio. Se saca el tope acá — la columna principal termina en
+   ~772px de todos modos (1100 del contenedor general menos 300 del lateral
+   menos el gap), casi el mismo ancho de lectura que tenía antes. */
+.album.modos-layout {
+  max-width: none;
+}
+
+.album-encabezado {
+  display: flex;
+  gap: 20px;
+  align-items: flex-end;
+  margin: 16px 0 24px;
+}
+
+.album-encabezado img {
+  width: 160px;
+  height: 160px;
+  border-radius: var(--radio);
+  object-fit: cover;
+  flex-shrink: 0;
+  box-shadow: 0 12px 32px rgb(0 0 0 / 0.5);
+}
+
+/* Fallback cuando no hay carátula (o la que había falló al cargar) — mismo
+   criterio que .artista-foto-vacia: mismo tamaño/sombra que la imagen real
+   para que la ficha no cambie de forma. */
+.album-cover-vacia {
+  width: 160px;
+  height: 160px;
+  border-radius: var(--radio);
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #fff;
+  font-family: var(--fuente-titulos);
+  font-weight: 700;
+  font-size: 52px;
+  box-shadow: 0 12px 32px rgb(0 0 0 / 0.5);
+}
+
+.album-encabezado h2 {
+  margin: 2px 0 4px;
+  font-size: 26px;
+}
+
+.album-artista {
+  margin: 0 0 8px;
+  color: var(--tenue);
+}
+
+.album-artista-link {
+  background: none;
+  border: none;
+  padding: 0;
+  font: inherit;
+  color: var(--acento-claro);
+  cursor: pointer;
+  text-align: left;
+}
+
+.album-artista-link:hover {
+  text-decoration: underline;
+}
+
+.artista-foto {
+  border-radius: 50%;
+}
+
+/* Fallback cuando el artista no tiene foto (Deezer devuelve null para varios).
+   Es un <span>, así que no hereda el tamaño de `.album-encabezado img` — lo
+   repite acá, sombra incluida, para ocupar exactamente el mismo lugar que la
+   foto real y que la ficha no cambie de forma según haya foto o no. */
+.artista-foto-vacia {
+  width: 160px;
+  height: 160px;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #fff;
+  font-family: var(--fuente-titulos);
+  font-weight: 700;
+  font-size: 52px;
+  box-shadow: 0 12px 32px rgb(0 0 0 / 0.5);
+}
+
+.artista-seccion-titulo {
+  margin: 24px 0 10px;
+}
+
+/* Pills de género en Explorar — mismo lenguaje visual que .submenu (borde+
+   radio 999px, estado activo en acento), pero como bloque propio: acá no es
+   navegación de nivel app, es un filtro local de esta pantalla. Son 25 —
+   demasiadas para una fila con scroll horizontal (quedan escondidas atrás de
+   un scroll que hay que descubrir); envuelve en varias líneas para que se
+   vean todas de entrada. */
+.explorar-generos {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding-bottom: 16px;
+  margin-bottom: 20px;
+  border-bottom: 1px solid var(--borde);
+}
+
+.explorar-generos button {
+  background: none;
+  border: 1px solid var(--borde);
+  color: var(--tenue);
+  padding: 6px 14px;
+  border-radius: 999px;
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+.explorar-generos button:hover {
+  color: var(--texto);
+  background: var(--panel);
+}
+
+.explorar-generos button.activo {
+  color: var(--acento-claro);
+  background: var(--panel-alto);
+  border-color: var(--acento);
+}
+
+.explorar-agregar {
+  margin: 4px 0 28px;
+  padding: 16px;
+  border: 1px solid var(--borde);
+  border-radius: var(--radio);
+  background: var(--panel);
+}
+
+.artista-albumes {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+  gap: 14px;
+  margin-bottom: 8px;
+}
+
+/* Solo en la ficha de artista (VistaArtista) — con muchos álbumes (Blondie:
+   39) la grilla de arriba se volvía una pared larga para bajar con scroll.
+   Carrusel horizontal en su lugar, ancho fijo por tile ya que flex no puede
+   repartir "1fr" como el grid de arriba. */
+.artista-albumes-carousel {
+  display: flex;
+  grid-template-columns: none;
+  overflow-x: auto;
+  padding-bottom: 6px;
+  scrollbar-width: thin;
+}
+
+.artista-albumes-carousel .artista-album-tile {
+  flex: 0 0 130px;
+  width: 130px;
+}
+
+.artista-album-tile {
+  background: none;
+  border: none;
+  padding: 0;
+  color: var(--texto);
+  cursor: pointer;
+  text-align: left;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.artista-album-tile img {
+  width: 100%;
+  aspect-ratio: 1;
+  object-fit: cover;
+  border-radius: var(--radio);
+}
+
+.artista-album-tile-vacia {
+  width: 100%;
+  aspect-ratio: 1;
+  border-radius: var(--radio);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #fff;
+  font-family: var(--fuente-titulos);
+  font-weight: 700;
+  font-size: 28px;
+}
+
+.artista-album-tile:hover .artista-album-tile-titulo {
+  color: var(--acento-claro);
+  text-decoration: underline;
+}
+
+.artista-album-tile-titulo {
+  font-size: 13px;
+  font-weight: 500;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.artista-album-tile-anio {
+  font-size: 12px;
+  color: var(--tenue);
+}
+
+/* Pedido: que el tile se vea en solo 2 lineas (portada + titulo + linea de
+   artista/anio) y que al pasar el mouse se despliegue la info completa sin
+   correr el resto de la grilla. La linea de artista/anio se trunca por
+   defecto igual que el titulo; al hover, ambas lineas se liberan de la
+   elipsis y flotan como una tarjetita encima de los tiles vecinos. */
+.artista-album-tile-artista {
+  display: block;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.artista-album-tile:hover {
+  z-index: 5;
+}
+
+.artista-album-tile:hover .artista-album-tile-titulo,
+.artista-album-tile:hover .artista-album-tile-artista {
+  position: relative;
+  overflow: visible;
+  white-space: normal;
+  background: var(--panel-alto);
+  border-radius: 6px;
+  padding: 2px 4px;
+  margin: -2px -4px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4);
+}
+
+/* Barra de acciones de la pestaña "En tu biblioteca" (VistaArtista) —
+   checkbox "seleccionar todas" + botón de borrado en lote, arriba de la
+   lista, mismo lenguaje que el resto de botones de acción de esta vista. */
+.artista-biblioteca-acciones {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin: 4px 0 10px;
+}
+
+.artista-biblioteca-todas {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  color: var(--tenue);
+  cursor: pointer;
+}
+
+.album-track-numero-quitar-lote {
+  background: none;
+  border: 1px solid var(--borde);
+  border-radius: 999px;
+  padding: 6px 14px;
+  font-size: 13px;
+  color: var(--texto);
+  cursor: pointer;
+}
+
+.album-track-numero-quitar-lote:disabled {
+  color: var(--tenue);
+  cursor: default;
+}
+
+.album-track-numero-quitar-lote:not(:disabled):hover {
+  border-color: var(--acento);
+  color: var(--acento-claro);
+}
+
+/* Variante de .artista-album-tile para Tendencias (Explorar): portada+título
+   y artista son dos botones separados dentro de un div, no uno solo — el
+   artista tiene que poder llevar a su ficha sin disparar el flujo de
+   agregar la canción. */
+.artista-album-tile-btn {
+  background: none;
+  border: none;
+  padding: 0;
+  color: var(--texto);
+  cursor: pointer;
+  text-align: left;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  width: 100%;
+}
+
+.artista-album-tile-btn:hover .artista-album-tile-titulo {
+  color: var(--acento-claro);
+  text-decoration: underline;
+}
+
+/* Contenedor, no botón: adentro van los botones por artista que arma
+   ArtistaTexto (un crédito puede ser una colaboración). El hover lo maneja
+   .c-artista-link, así el subrayado marca solo el artista apuntado y no la
+   línea entera, que además incluye el año y no es clickeable. */
+.artista-album-tile-artista {
+  background: none;
+  border: none;
+  padding: 0;
+  text-align: left;
+  font-size: 12px;
+  color: var(--tenue);
+  cursor: pointer;
+}
+
+.artista-album-tile-artista:hover {
+  color: var(--acento-claro);
+  text-decoration: underline;
+}
+
+.album-botones {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 12px;
+}
+
+.album-reproducir {
+  padding: 10px 20px;
+  background: var(--gradiente-primario);
+  border: none;
+  border-radius: 999px;
+  color: #fff;
+  font-weight: 600;
+  font-family: var(--fuente-titulos);
+  cursor: pointer;
+}
+
+.album-reproducir:hover {
+  opacity: 0.9;
+}
+
+.album-agregar {
+  background: var(--panel-alto);
+  border: 1px solid var(--acento);
+  color: var(--acento-claro);
+  border-radius: 999px;
+  padding: 10px 16px;
+  cursor: pointer;
+}
+
+.album-agregar:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+/* "Me gusta" de álbum/artista — pedido explícito, mismo lenguaje que el
+   corazón de canción (circular, mismo color al activarse). */
+.album-favorito {
+  width: 42px;
+  height: 42px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--panel-alto);
+  border: 1px solid var(--borde);
+  border-radius: 50%;
+  color: var(--tenue);
+  font-size: 18px;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.album-favorito:hover {
+  color: var(--texto);
+  border-color: var(--acento);
+}
+
+.album-favorito.activo {
+  color: var(--acento);
+  border-color: var(--acento);
+}
+
+.album-tracklist {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  border: 1px solid var(--borde);
+  border-radius: var(--radio);
+  overflow: hidden;
+}
+
+.album-tracklist li {
+  display: grid;
+  grid-template-columns: 32px 1fr 56px 120px auto;
+  gap: 12px;
+  align-items: center;
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--borde);
+  font-size: 14px;
+}
+
+.album-track-acciones {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  justify-content: flex-end;
+}
+
+/* Checkbox de selección en lote de "En tu biblioteca" (VistaArtista) — antes
+   vivía en el lugar del play; ahora que el play es fijo (.album-track-numero,
+   igual en toda la app) esta acción secundaria se corre acá. */
+.album-track-checkbox {
+  display: flex;
+  align-items: center;
+  cursor: pointer;
+}
+
+.album-track-acciones button {
+  width: 26px;
+  height: 26px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--panel-alto);
+  border: 1px solid var(--borde);
+  border-radius: 50%;
+  color: var(--tenue);
+  font-size: 12px;
+  padding: 0;
+  cursor: pointer;
+}
+
+.album-track-acciones button:hover:not(:disabled) {
+  color: var(--texto);
+  border-color: var(--acento);
+}
+
+.album-track-acciones button:disabled {
+  opacity: 0.25;
+  cursor: default;
+}
+
+.album-tracklist li:last-child {
+  border-bottom: 0;
+}
+
+/* .album-tracklist li es grid de 5 columnas angostas (ver arriba) — pensado
+   para track/duración/acciones. Un mensaje de texto plano sin esos 5
+   elementos (ej. "no tenés canciones de este artista") quedaba repartido
+   palabra por palabra en esas columnas. Esta excepción lo saca del grid. */
+.album-tracklist li.ayuda {
+  display: block;
+}
+
+.album-tracklist li.actual {
+  background: var(--panel-alto);
+  box-shadow: inset 3px 0 0 var(--acento);
+}
+
+/* Numero por defecto, play al pasar el mouse o si es el track sonando ahora
+   — mismo patron que Spotify: el play va a la izquierda, no agrupado con
+   las demas acciones a la derecha, es la accion mas usada de la fila. */
+/* El play vivía escondido detrás de un hover sobre el número — sin mouse
+   (o sin saber que había que pasarlo por ahí) parecía que esta lista no
+   tenía forma de reproducir una canción puntual, a diferencia de Favoritos/
+   cola/historial donde el play siempre está a la vista. Pedido explícito de
+   consistencia: ahora el play se ve siempre, mismo círculo (.c-play) que el
+   resto de las listas — el número de pista se deja de mostrar (Favoritos
+   tampoco lo muestra). */
+.album-track-numero {
+  width: 32px;
+  height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: none;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+}
+
+.album-track-numero .num {
+  display: none;
+}
+
+.album-track-numero .play {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  background: var(--panel-alto);
+  border: 1px solid var(--borde);
+  border-radius: 50%;
+  color: var(--tenue);
+  font-size: 11px;
+}
+
+.album-track-numero:hover .play,
+li.actual .album-track-numero .play {
+  color: var(--acento-claro);
+  border-color: var(--acento);
+}
+
+.album-track-titulo {
+  cursor: pointer;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.album-track-titulo:hover {
+  color: var(--acento-claro);
+}
+
+.album-track-duracion {
+  color: var(--tenue);
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+}
+
+.album-track-estado {
+  font-size: 12px;
+  color: var(--tenue);
+  white-space: nowrap;
+}
+
+.album-track-estado.en-biblioteca {
+  color: var(--acento-claro);
+}
+
+/* Onboarding: recorrido corto de bienvenida, una sola vez por navegador
+   (ver CLAVE_ONBOARDING en App.jsx). z-index por encima de todo lo demás
+   en la app (el más alto usado hasta ahora es 50, en los desplegables
+   flotantes) — tiene que tapar la cabecera fija también. */
+.onboarding-tarjeta {
+  position: relative;
+  width: 420px;
+  max-width: 100%;
+  background: var(--panel-alto);
+  border: 1px solid var(--borde);
+  border-radius: var(--radio);
+  padding: 32px 28px 24px;
+  box-shadow: 0 24px 64px rgb(0 0 0 / 0.5);
+  text-align: center;
+}
+
+.onboarding-saltar {
+  position: absolute;
+  top: 14px;
+  right: 14px;
+  background: none;
+  border: none;
+  color: var(--tenue);
+  font-size: 13px;
+  cursor: pointer;
+  padding: 4px 8px;
+}
+
+.onboarding-saltar:hover {
+  color: var(--texto);
+}
+
+.onboarding-icono {
+  width: 56px;
+  height: 56px;
+  margin: 0 auto 16px;
+  border-radius: 50%;
+  background: var(--gradiente-primario);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--texto);
+}
+
+.onboarding-tarjeta h2 {
+  margin: 0 0 10px;
+  font-family: var(--fuente-titulos);
+  font-size: 20px;
+}
+
+.onboarding-tarjeta p {
+  margin: 0 0 22px;
+  color: var(--tenue);
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+.onboarding-puntos {
+  display: flex;
+  justify-content: center;
+  gap: 6px;
+  margin-bottom: 22px;
+}
+
+.onboarding-puntos span {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--borde);
+}
+
+.onboarding-puntos span.activo {
+  background: var(--acento);
+  width: 18px;
+  border-radius: 3px;
+}
+
+.onboarding-acciones {
+  display: flex;
+  gap: 10px;
+  justify-content: center;
+}
+
+.onboarding-atras {
+  background: none;
+  border: 1px solid var(--borde);
+  border-radius: 999px;
+  color: var(--tenue);
+  padding: 10px 20px;
+  font-size: 14px;
+  cursor: pointer;
+}
+
+.onboarding-atras:hover {
+  border-color: var(--tenue);
+  color: var(--texto);
+}
+
+.onboarding-siguiente {
+  background: var(--gradiente-primario);
+  border: none;
+  border-radius: 999px;
+  color: #fff;
+  padding: 10px 24px;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.onboarding-siguiente:hover {
+  filter: brightness(1.08);
+}
+
+/* --- tour de bienvenida con globos + flecha (reemplaza el modal centrado) --- */
+
+.onboarding-tour {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+}
+
+/* Fallback cuando el elemento señalado no está en pantalla (selector no
+   encontrado) — mismo fondo oscuro que tenía el modal viejo. */
+.onboarding-tour-fondo-completo {
+  position: absolute;
+  inset: 0;
+  background: rgb(10 10 18 / 0.78);
+}
+
+/* El truco: en vez de un overlay oscuro con un agujero recortado, este
+   elemento se posiciona exactamente sobre el elemento real señalado y es SU
+   PROPIO box-shadow (con un spread enorme) el que pinta de oscuro todo lo
+   de alrededor — el "agujero" es, literalmente, el área sin sombra. */
+.onboarding-tour-foco {
+  position: absolute;
+  border-radius: 10px;
+  box-shadow: 0 0 0 9999px rgb(10 10 18 / 0.78);
+  outline: 2px solid var(--acento-claro);
+  outline-offset: 2px;
+  transition: top 0.2s ease, left 0.2s ease, width 0.2s ease, height 0.2s ease;
+}
+
+.onboarding-globo {
+  position: fixed;
+  width: 320px;
+}
+
+.onboarding-tour-flecha {
+  position: absolute;
+  width: 14px;
+  height: 14px;
+  background: var(--panel-alto);
+  transform: translateX(-50%) rotate(45deg);
+  filter: drop-shadow(0 2px 2px rgb(0 0 0 / 0.25));
+}
+
+.onboarding-tour-flecha-arriba {
+  top: -7px;
+}
+
+.onboarding-tour-flecha-abajo {
+  bottom: -7px;
+}
+
+/* El blur va en ::before, no directo en este elemento: un <select> nativo
+   (ver ClasificacionAsistida en App.jsx) que tenga un ancestro con
+   backdrop-filter hace que Chromium calcule mal la posición/recorte de su
+   propio popup de opciones — se veía angosto, cortado y desplazado, e
+   impedía elegir la opción correcta ("no se puede seleccionar el modo
+   apropiado"). El ::before es hermano visual de .revision-modos-tarjeta,
+   no ancestro del <select>, así que el popup nativo vuelve a posicionarse
+   bien sin perder el efecto de fondo borroso. */
+.revision-modos-fondo {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  overflow-y: auto;
+}
+
+.revision-modos-fondo::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  background: rgb(10 10 18 / 0.78);
+  backdrop-filter: blur(3px);
+}
+
+.revision-modos-tarjeta {
+  width: 480px;
+  max-width: 100%;
+  max-height: calc(100vh - 40px);
+  overflow-y: auto;
+  background: var(--panel-alto);
+  border: 1px solid var(--borde);
+  border-radius: var(--radio);
+  padding: 28px;
+  box-shadow: 0 24px 64px rgb(0 0 0 / 0.5);
+}
+
+.revision-modos-tarjeta h2 {
+  margin: 0 0 8px;
+  font-family: var(--fuente-titulos);
+  font-size: 20px;
+}
+
+.revision-modos-tarjeta h3 {
+  margin: 22px 0 6px;
+  font-size: 15px;
+}
+
+.revision-modos-tarjeta .ayuda {
+  margin: 0 0 16px;
+  color: var(--tenue);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.revision-modo-fila {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--borde);
+}
+
+.revision-modo-nombre {
+  flex: 1;
+  min-width: 0;
+  background: var(--panel);
+  border: 1px solid var(--borde);
+  border-radius: 8px;
+  color: var(--texto);
+  padding: 7px 10px;
+  font-size: 14px;
+}
+
+.revision-modo-conteo {
+  color: var(--tenue);
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.revision-modo-boton,
+.revision-modo-descartar {
+  background: none;
+  border: 1px solid var(--borde);
+  border-radius: 999px;
+  color: var(--tenue);
+  padding: 6px 12px;
+  font-size: 12px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.revision-modo-boton:hover,
+.revision-modo-descartar:hover {
+  border-color: var(--tenue);
+  color: var(--texto);
+}
+
+.revision-transversal-fila {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 6px 0;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.revision-transversal-fila input {
+  margin-top: 3px;
+}
+
+.revision-transversal-aviso {
+  color: var(--tenue);
+}
+
+.revision-modos-acciones {
+  display: flex;
+  gap: 10px;
+  justify-content: center;
+  margin-top: 22px;
+}
+
+/* --- clasificación asistida (Tarea 17) --- */
+/* Reusa .revision-modos-fondo/.revision-modos-tarjeta (misma pantalla
+   completa on-demand, mismo look) — solo lo específico de mostrar un track a
+   la vez va acá. */
+
+.clasificacion-asistida-track {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 16px;
+  font-weight: 600;
+  margin: 10px 0 6px;
+}
+
+.clasificacion-asistida-track-texto {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.clasificacion-asistida-track-album {
+  font-size: 12px;
+  font-weight: 400;
+  color: var(--tenue);
+}
+
+/* Mismo tamaño y look que .tarjeta-fila-play — es el mismo tipo de botón
+   (transporte puntual), solo que acá dispara un preview aislado en vez de
+   la cola real. */
+.clasificacion-asistida-preview {
+  flex-shrink: 0;
+  width: 32px;
+  height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  border: 0;
+  background: var(--acento);
+  color: #fff;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.clasificacion-asistida-preview:hover:not(:disabled) {
+  background: var(--acento-claro);
+}
+
+.clasificacion-asistida-preview:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+/* Pedido explícito: es un preview de AUDIO, no un reproductor de video —
+   nadie necesita ver el clip para decidir a qué modo va una canción. El
+   iframe sigue montado de verdad (con tamaño real, no 0x0): YouTube puede
+   pausar o negarse a reproducir un embed sin superficie visible, así que se
+   lo saca de la vista con position:fixed fuera de pantalla en vez de
+   width/height:0 o display:none. */
+.clasificacion-asistida-preview-iframe {
+  position: fixed;
+  left: -9999px;
+  top: -9999px;
+  width: 200px;
+  height: 113px;
+  border: 0;
+}
+
+.clasificacion-asistida-sugerencia {
+  margin: 0 0 16px;
+  font-size: 14px;
+}
+
+.clasificacion-asistida-aviso {
+  margin: 0 0 12px;
+  font-size: 12px;
+  color: var(--secundario);
+}
+
+.clasificacion-asistida-acciones {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.clasificacion-asistida-acciones select {
+  background: var(--panel);
+  border: 1px solid var(--borde);
+  border-radius: 8px;
+  color: var(--texto);
+  padding: 6px 10px;
+  font-size: 13px;
+}
+
+.clasificacion-asistida-buscar-genero {
+  margin: 0 0 16px;
+  font-size: 12px;
+  color: var(--tenue);
+}
+
+.clasificacion-asistida-buscar-genero a {
+  color: var(--acento-claro);
+}
+
+.clasificacion-asistida-crear-modo-toggle {
+  display: block;
+  background: none;
+  border: 0;
+  padding: 0;
+  margin-top: 12px;
+  font-size: 13px;
+  color: var(--acento-claro);
+  cursor: pointer;
+}
+
+.clasificacion-asistida-crear-modo-toggle:hover {
+  text-decoration: underline;
+}
+
+.clasificacion-asistida-crear-modo {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-top: 12px;
+}
+
+.clasificacion-asistida-crear-modo input {
+  background: var(--panel);
+  border: 1px solid var(--borde);
+  border-radius: 8px;
+  color: var(--texto);
+  padding: 6px 10px;
+  font-size: 13px;
+  flex: 1;
+  min-width: 160px;
+}
+
+.acerca-de {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  justify-content: space-between;
+  gap: 24px;
+  margin-top: 16px;
+}
+
+.acerca-de-texto {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.acerca-de-logo {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.acerca-de-logo img {
+  width: min(220px, 28vw);
+  height: min(220px, 28vw);
+  object-fit: contain;
+  opacity: 0.92;
+}
+
+.acerca-de-logo-texto {
+  margin: 0;
+  font-family: var(--fuente-titulos);
+  font-size: 20px;
+  font-weight: 800;
+  letter-spacing: -0.02em;
+  color: var(--texto);
+}
+
+@media (max-width: 720px) {
+  .acerca-de-logo {
+    display: none;
+  }
+}
+
+.acerca-nombre {
+  font-family: var(--fuente-titulos);
+  font-size: 20px;
+  font-weight: 700;
+  margin: 0 0 4px;
+}
+
+/* El sello del build es un dato de diagnóstico, no de marca: monoespaciado
+   para que el hash se lea sin ambigüedad (0/O, 1/l) y bien apagado para que
+   no compita con el resto de la ficha. */
+.acerca-sello {
+  margin-top: 10px;
+  font-family: ui-monospace, 'Cascadia Code', Consolas, monospace;
+  font-size: 11px;
+  color: var(--tenue-mas);
+}
+
+/* --- escribinos (formulario de contacto) --- */
+
+.escribinos {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  max-width: 480px;
+  margin-top: 16px;
+}
+
+.escribinos-campo {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 14px;
+  color: var(--texto);
+}
+
+.escribinos-campo textarea,
+.escribinos-campo input {
+  background: var(--panel-alto);
+  border: 1px solid var(--borde);
+  border-radius: var(--radio);
+  color: var(--texto);
+  padding: 10px 12px;
+  font-size: 14px;
+  font-family: inherit;
+}
+
+.escribinos-campo textarea {
+  resize: vertical;
+  min-height: 110px;
+}
+
+.escribinos-campo textarea:focus,
+.escribinos-campo input:focus {
+  outline: none;
+  border-color: var(--acento);
+}
+
+/* Honeypot: invisible para una persona real, pero sigue en el DOM (no
+   display:none) para que un bot que autocompleta por JS lo encuentre igual
+   — mismo criterio que ya usa el iframe de YouTube en este archivo. */
+.escribinos-honeypot {
+  position: absolute;
+  left: -9999px;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+}
+
+.escribinos-enviar {
+  align-self: flex-start;
+  padding: 10px 20px;
+  background: var(--gradiente-primario);
+  color: #fff;
+  border: none;
+  border-radius: var(--radio);
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.escribinos-enviar:hover:not(:disabled) {
+  opacity: 0.9;
+}
+
+.escribinos-enviar:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+/* Temporizador para dormir: opciones en el menú ⋮ e indicador junto a la posición. */
+.barra-temporizador-opciones {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+  padding: 6px 10px 8px;
+  border-bottom: 1px solid var(--borde);
+  margin-bottom: 2px;
+  font-size: 13px;
+  color: var(--tenue);
+}
+
+.barra-temporizador-opciones > span {
+  width: 100%;
+  color: var(--texto);
+}
+
+.barra-temporizador-opciones > button {
+  height: auto;
+  min-height: 32px;
+  padding: 4px 10px;
+  border: 1px solid var(--borde);
+  border-radius: 999px;
+  background: none;
+  color: var(--texto);
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.barra-temporizador-opciones > button:hover {
+  background: var(--panel);
+}
+
+.barra-temporizador {
+  height: auto;
+  padding: 2px 8px;
+  border: 1px solid var(--borde);
+  border-radius: 999px;
+  background: none;
+  color: var(--tenue);
+  font-size: 11px;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+/* En móvil la fila de controles no da para posición + temporizador: mientras
+   hay temporizador se ve él en lugar de "1 / 804". */
+@media (max-width: 600px) {
+  .barra-cola-grupo:has(.barra-temporizador) .barra-pos {
+    display: none;
+  }
+}
+
+/* Letra a pantalla completa (PanelLetras). El `bottom` lo fija el componente
+   con el alto real de la barra de reproducción, que queda a la vista. */
+.panel-letras {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 29;
+  display: flex;
+  flex-direction: column;
+  background: var(--fondo);
+  padding: 16px 16px 8px;
+}
+
+.panel-letras-cabecera {
+  min-width: 0;
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--borde);
+}
+
+.panel-letras-cabecera button {
+  flex: none;
+  width: 44px;
+  height: 44px;
+  border-radius: 999px;
+  border: 1px solid var(--borde);
+  background: none;
+  color: var(--texto);
+  font-size: 16px;
+  cursor: pointer;
+}
+
+.panel-letras-titulo {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 700;
+  color: var(--texto);
+}
+
+.panel-letras-artista {
+  margin: 2px 0 0;
+  font-size: 14px;
+  color: var(--tenue);
+}
+
+.panel-letras-cuerpo {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 24px 0 30vh;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  max-width: 720px;
+  width: 100%;
+  margin: 0 auto;
+}
+
+.panel-letras-linea {
+  display: block;
+  width: 100%;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  height: auto;
+  text-align: left;
+  background: none;
+  border: 0;
+  padding: 6px 0;
+  font-size: 22px;
+  line-height: 1.3;
+  font-weight: 700;
+  color: var(--tenue);
+  opacity: 0.55;
+  cursor: pointer;
+  transition: opacity 200ms ease, color 200ms ease;
+}
+
+.panel-letras-linea.pasada {
+  opacity: 0.35;
+}
+
+.panel-letras-linea.activa {
+  color: var(--texto);
+  opacity: 1;
+}
+
+.panel-letras-plana {
+  white-space: pre-wrap;
+  font-size: 17px;
+  line-height: 1.6;
+  color: var(--texto);
+  margin: 0;
+}
+
+.panel-letras-aviso {
+  color: var(--tenue);
+  font-size: 15px;
+}
+
+.panel-letras-ajuste {
+  display: flex;
+  justify-content: center;
+  gap: 6px;
+  padding: 8px 0 2px;
+  flex-wrap: wrap;
+}
+
+.panel-letras-ajuste button {
+  min-width: 48px;
+  min-height: 44px;
+  padding: 0 10px;
+  border-radius: 999px;
+  border: 0;
+  background: rgb(255 255 255 / 0.1);
+  color: inherit;
+  font: inherit;
+  font-size: 14px;
+  cursor: pointer;
+}
+
+.panel-letras-ajuste .panel-letras-ajuste-valor {
+  background: none;
+  opacity: 0.8;
+}
+
+.panel-letras-fuente {
+  margin: 4px 0 0;
+  font-size: 11px;
+  color: var(--tenue-mas);
+  text-align: right;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .panel-letras-linea {
+    transition: none;
+  }
+}
+
+/* Móvil estrecho: la fila de controles (♥, 6 botones, posición, cola) medía
+   ~400 px y se salía por los lados. Sin ↺ (⏮ ya reinicia pasados 3 s) y con
+   huecos más chicos cabe sin encoger los botones. */
+@media (max-width: 420px) {
+  .barra-botones .barra-reiniciar {
+    display: none;
+  }
+  .barra-controles-iconos {
+    gap: 10px;
+  }
+}
+
+/* Tinte del reproductor (C1-C3). App.jsx pone --color-portada (color vivo de la
+   portada) y --color-modo (color del modo activo); el modo marca el tono (25 %).
+   Solo se tiñen fondos oscuros (≤ 24 % de mezcla) y acentos: el texto sigue
+   claro sobre fondo oscuro, así que el contraste AA no cambia. Sin color-mix
+   (WebView viejo) queda todo como antes. */
+@supports (color: color-mix(in oklab, red, blue)) {
+  :root {
+    --tinte: color-mix(
+      in oklab,
+      var(--color-portada, var(--color-modo, var(--acento-morado))) 75%,
+      var(--color-modo, var(--color-portada, var(--acento-morado)))
+    );
+  }
+
+  .barra {
+    background: linear-gradient(
+      to top,
+      var(--panel) 35%,
+      color-mix(in oklab, var(--tinte) 24%, var(--panel))
+    );
+  }
+
+  .barra-progreso input[type='range']::-webkit-slider-thumb {
+    background: color-mix(in oklab, var(--tinte) 70%, white);
+  }
+
+  .panel-letras {
+    background: linear-gradient(
+      to bottom,
+      color-mix(in oklab, var(--tinte) 30%, var(--fondo)),
+      var(--fondo) 70%
+    );
+  }
+}
+
+/* Configuración → Móvil (sincronizar la app Android con el PC). */
+.sincronizacion-movil-form {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 12px 0;
+}
+
+.sincronizacion-movil-form input {
+  flex: 1 1 200px;
+  min-width: 0;
+  min-height: 44px;
+  padding: 8px 12px;
+  border-radius: var(--radio);
+  border: 1px solid var(--borde);
+  background: var(--panel);
+  color: var(--texto);
+  font-size: 16px;
+}
+
+.sincronizacion-movil-form button {
+  min-height: 44px;
+  padding: 8px 16px;
+  border-radius: 999px;
+  border: 0;
+  background: var(--gradiente-primario);
+  color: #fff;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.sincronizacion-movil-form button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.sincronizacion-movil-direccion {
+  font-family: ui-monospace, monospace;
+  font-size: 20px;
+  color: var(--texto);
+  margin: 8px 0;
+  user-select: all;
+}
+
+.sincronizacion-movil-qr img {
+  display: block;
+  background: #fff;
+  border-radius: var(--radio);
+  margin: 12px 0 4px;
+}
+
+/* Aviso de la sincronización por QR (Android). */
+.aviso-sincronizacion {
+  position: fixed;
+  top: max(12px, env(safe-area-inset-top));
+  left: 16px;
+  right: 16px;
+  z-index: 60;
+  padding: 12px 16px;
+  border-radius: var(--radio);
+  background: var(--panel-alto);
+  border: 1px solid var(--borde);
+  color: var(--texto);
+  font-size: 14px;
+  box-shadow: 0 12px 32px rgb(0 0 0 / 0.5);
+}
+
+/* PanelLetras dentro del reproductor móvil (no flota sobre la app). */
+.panel-letras--incrustado {
+  position: static;
+  height: 100%;
+  background: transparent;
+  padding: 0;
+}
+
+/* Punto de color del modo: solo lo muestra el móvil (ver movil.css). */
+.editor .punto-eje {
+  display: none;
+}

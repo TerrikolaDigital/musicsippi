@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <meta name="theme-color" content="#0D0F16" />
+    <script>
+      /* Tema antes de pintar (sin parpadeo). Ver src/data/tema.js: misma clave y valores. */
+      (function () {
+        try {
+          var t = localStorage.getItem('musicsippi-tema');
+          if (t !== 'claro' && t !== 'oscuro') t = 'sistema';
+          var claro = t === 'claro' || (t === 'sistema' && matchMedia('(prefers-color-scheme: light)').matches);
+          var h = document.documentElement;
+          h.dataset.tema = t;
+          h.dataset.temaReal = claro ? 'claro' : 'oscuro';
+          h.style.colorScheme = claro ? 'light' : 'dark';
+          document.querySelector('meta[name="theme-color"]').setAttribute('content', claro ? '#f7f2ea' : '#0a0b16');
+        } catch (e) {}
+      })();
+    </script>
+    <link rel="icon" href="/favicon.ico" sizes="any" />
+    <link rel="icon" type="image/png" sizes="16x16" href="/musicsippi-favicon-16.png" />
+    <link rel="icon" type="image/png" sizes="32x32" href="/musicsippi-favicon-32.png" />
+    <link rel="icon" type="image/png" sizes="48x48" href="/musicsippi-favicon-48.png" />
+    <link rel="apple-touch-icon" sizes="180x180" href="/musicsippi-app-icon-180.png" />
+    <link rel="manifest" href="/site.webmanifest" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700;800&family=Inter:wght@400;500;600;700;800;900&family=Fraunces:ital,opsz,wght,SOFT@0,9..144,400..800,0..100;1,9..144,400..800,0..100&display=swap"
+      rel="stylesheet"
+    />
+    <title>Musicsippi</title>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.jsx"></script>
+  </body>
+</html>

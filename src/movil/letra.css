@@ -1,0 +1,207 @@
+/* Letra del reproductor móvil (PanelLetras incrustado).
+   Referencia: BitChord. Sans muy gruesa y grande, alineada a la izquierda; la línea que suena en
+   blanco, las siguientes en gris translúcido, las pasadas más apagadas y las lejanas con un
+   desenfoque suave. Va en su propio archivo y con selectores más específicos que los de
+   movil.css (que aún trae el estilo serif anterior, ya sin efecto). */
+
+/* Mismo gutter que el reproductor (lo da .rep-completo); sin barra de scroll en el panel ni en el cuerpo. */
+.rep-completo .rep-centro > .panel-letras--incrustado {
+  overflow: hidden;
+  scrollbar-width: none;
+}
+
+.rep-completo .rep-centro > .panel-letras--incrustado::-webkit-scrollbar {
+  display: none;
+}
+
+.rep-completo .panel-letras--incrustado .panel-letras-cuerpo {
+  max-width: none;
+  gap: 0;
+  padding: 18px 0 34vh;
+}
+
+.rep-completo .panel-letras--incrustado .panel-letras-linea {
+  font: 800 33px/1.12 var(--fuente-texto);
+  letter-spacing: -0.025em;
+  padding: 9px 0;
+  color: rgb(255 255 255 / 0.4);
+  opacity: 1;
+  /* d = distancia a la línea activa (la pone el componente): desde la tercera, algo de desenfoque */
+  filter: blur(calc(max(var(--d, 0) - 1, 0) * 0.5px));
+  transition: color 260ms ease, filter 260ms ease;
+}
+
+.rep-completo .panel-letras--incrustado .panel-letras-linea.pasada {
+  color: rgb(255 255 255 / 0.22);
+}
+
+.rep-completo .panel-letras--incrustado .panel-letras-linea.activa {
+  color: #fff;
+  filter: none;
+}
+
+/* Palabra a palabra: la que suena se rellena con un barrido; la duración y el desfase los pone el componente. */
+.pl-palabra.futura {
+  color: rgb(255 255 255 / 0.42);
+}
+
+.pl-palabra.cantada {
+  color: #fff;
+}
+
+.pl-palabra.sonando {
+  color: transparent;
+  background: linear-gradient(90deg, #fff 50%, rgb(255 255 255 / 0.42) 50%) 100% 0 / 200% 100%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  animation: pl-barrido linear forwards;
+}
+
+@keyframes pl-barrido {
+  to {
+    background-position: 0 0;
+  }
+}
+
+/* Traducción: más pequeña y tenue bajo cada línea */
+.panel-letras-trad {
+  display: block;
+  margin-top: 3px;
+  font: 600 17px/1.25 var(--fuente-texto);
+  letter-spacing: 0;
+  color: rgb(255 255 255 / 0.5);
+}
+
+.panel-letras--incrustado .panel-letras-plana p {
+  margin: 0 0 10px;
+}
+
+/* Pie: fuente a la izquierda y herramientas (traducir, elegir proveedor) a la derecha */
+.panel-letras--incrustado .panel-letras-pie {
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.panel-letras--incrustado .panel-letras-fuente {
+  flex: 1;
+  min-width: 0;
+  margin: 0;
+  text-align: left;
+}
+
+/* Ajuste de sincronía desplegable: una sola línea */
+.panel-letras--incrustado .panel-letras-ajuste {
+  flex: none;
+  flex-wrap: nowrap;
+  gap: 6px;
+  padding: 8px 0 4px;
+}
+
+.panel-letras--incrustado .panel-letras-ajuste button {
+  flex: 1 1 0;
+  min-width: 0;
+  min-height: 44px;
+  padding: 0 4px;
+  white-space: nowrap;
+  font-size: 14px;
+}
+
+.panel-letras--incrustado .panel-letras-ajuste .panel-letras-ajuste-valor {
+  flex: 1.3 1 0;
+  background: rgb(255 255 255 / 0.1);
+  opacity: 1;
+}
+
+.panel-letras-herramientas {
+  display: flex;
+  gap: 6px;
+}
+
+.panel-letras-herramientas button {
+  width: 44px;
+  height: 44px;
+  display: grid;
+  place-items: center;
+  border: 0;
+  border-radius: 999px;
+  background: rgb(255 255 255 / 0.1);
+  color: var(--texto);
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  transition: background-color 160ms ease, transform 120ms ease;
+}
+
+.panel-letras-herramientas button:active {
+  transform: scale(0.94);
+}
+
+.panel-letras-herramientas button.activo {
+  background: #fff;
+  color: #14162f;
+}
+
+.panel-letras-herramientas button:disabled {
+  opacity: 0.4;
+}
+
+.panel-letras-herramientas button:focus-visible {
+  outline: 2px solid #fff;
+  outline-offset: 2px;
+}
+
+/* Hoja «Elegir proveedor de letras» */
+.hoja-proveedores {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.hoja .hoja-proveedor {
+  min-height: 60px;
+}
+
+.hoja .hoja-proveedor > span {
+  display: grid;
+  gap: 1px;
+  text-align: left;
+}
+
+.hoja .hoja-proveedor b {
+  font-weight: 650;
+}
+
+.hoja .hoja-proveedor small {
+  color: var(--tenue);
+  font-size: 13px;
+}
+
+.hoja .hoja-proveedor.actual svg {
+  color: #7be0a4;
+}
+
+.hoja .hoja-proveedor.fallado {
+  opacity: 0.7;
+}
+
+.hoja .hoja-proveedor.fallado svg {
+  color: #ff8a8a;
+}
+
+.hoja .hoja-proveedor:disabled {
+  opacity: 0.5;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .rep-completo .panel-letras--incrustado .panel-letras-linea,
+  .panel-letras-herramientas button {
+    transition: none;
+  }
+  .pl-palabra.sonando {
+    animation: none;
+    background: none;
+    color: #fff;
+  }
+}

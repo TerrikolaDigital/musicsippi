@@ -1,0 +1,283 @@
+/* Editar «¿Cómo te sientes?»: lista con interruptor y flechas, y formulario de un estado */
+
+.shell-movil .est-lista {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 12px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.shell-movil .est-lista li {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-height: 64px;
+  padding: 4px 12px 4px 4px;
+  border-radius: 20px;
+  background: var(--agua-honda);
+}
+
+.shell-movil .est-lista li.oculto .est-ficha {
+  opacity: 0.55;
+  filter: saturate(0.6);
+}
+
+.shell-movil .est-fila-editar {
+  display: flex;
+  flex: 1;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+  min-height: 56px;
+  padding: 4px 6px;
+  border-radius: 16px;
+  text-align: left;
+  color: var(--texto);
+  -webkit-tap-highlight-color: transparent;
+}
+
+.shell-movil .est-fila-editar:active {
+  background: rgb(255 255 255 / 0.05);
+}
+
+.shell-movil .est-fila-editar:focus-visible,
+.shell-movil .est-orden button:focus-visible,
+.shell-movil .est-iconos button:focus-visible,
+.shell-movil .est-colores button:focus-visible,
+.shell-movil .est-boton:focus-visible {
+  outline: 2px solid var(--violeta-claro);
+  outline-offset: 2px;
+}
+
+.shell-movil .est-nombre {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.shell-movil .est-nombre b {
+  overflow: hidden;
+  font: 700 15px/1.2 var(--fuente-titulos);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.shell-movil .est-nombre small {
+  color: var(--tenue);
+  font-size: 12.5px;
+}
+
+.shell-movil .est-ficha {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 48px;
+  height: 48px;
+  padding: 7px;
+  border-radius: 16px;
+  background:
+    radial-gradient(85% 70% at 50% 30%, color-mix(in srgb, var(--c) 30%, transparent), transparent 75%),
+    linear-gradient(170deg, color-mix(in srgb, var(--c) 14%, var(--agua-fondo)), var(--agua-fondo) 80%);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--c) 28%, transparent);
+}
+
+.shell-movil .est-ficha .animo-icono {
+  width: 100%;
+  height: 100%;
+}
+
+.shell-movil .est-orden {
+  display: flex;
+}
+
+.shell-movil .est-orden button {
+  display: grid;
+  place-items: center;
+  width: 48px;
+  height: 48px;
+  border-radius: 50%;
+  color: var(--texto);
+  transition: transform 160ms cubic-bezier(0.23, 1, 0.32, 1), opacity 160ms;
+}
+
+.shell-movil .est-orden button:active:not(:disabled) {
+  transform: scale(0.92);
+}
+
+.shell-movil .est-orden button:disabled {
+  opacity: 0.28;
+}
+
+.shell-movil .est-crear {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  width: 100%;
+  min-height: 52px;
+  margin-top: 16px;
+}
+
+/* Formulario */
+.shell-movil .est-form {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  padding-bottom: 24px;
+}
+
+.shell-movil .est-vista {
+  display: grid;
+  place-items: center;
+  padding: 6px 0 0;
+}
+
+.shell-movil .est-vista .animo-chip {
+  display: flex;
+  width: 112px;
+  pointer-events: none;
+}
+
+.shell-movil .est-campo {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.shell-movil .est-campo > span {
+  color: var(--tenue);
+  font: 600 13px var(--fuente-texto);
+}
+
+.shell-movil .est-campo > small {
+  color: var(--tenue);
+  font-size: 12.5px;
+  line-height: 1.4;
+}
+
+.shell-movil .est-campo .m-input {
+  margin: 0;
+}
+
+.shell-movil .est-campo textarea.m-input {
+  min-height: 84px;
+  padding: 12px 16px;
+  border-radius: 20px;
+  resize: vertical;
+}
+
+.shell-movil .est-iconos {
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  gap: 8px;
+}
+
+.shell-movil .est-iconos button {
+  display: grid;
+  place-items: center;
+  aspect-ratio: 1;
+  min-height: 48px;
+  padding: 9px;
+  border-radius: 16px;
+  background: var(--agua-honda);
+  box-shadow: inset 0 0 0 1px transparent;
+  transition: transform 160ms cubic-bezier(0.23, 1, 0.32, 1), box-shadow 200ms;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.shell-movil .est-iconos button:active {
+  transform: scale(0.94);
+}
+
+.shell-movil .est-iconos button.on {
+  background: color-mix(in srgb, var(--c) 18%, var(--agua-honda));
+  box-shadow: inset 0 0 0 2px var(--c);
+}
+
+.shell-movil .est-iconos .animo-icono {
+  width: 100%;
+  height: 100%;
+}
+
+.shell-movil .est-colores {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.shell-movil .est-colores button,
+.shell-movil .est-color-libre {
+  position: relative;
+  width: 48px;
+  height: 48px;
+  border-radius: 50%;
+  box-shadow: inset 0 0 0 2px rgb(255 255 255 / 0.14);
+}
+
+.shell-movil .est-colores button.on {
+  box-shadow:
+    inset 0 0 0 3px var(--agua-fondo),
+    0 0 0 2px var(--texto);
+}
+
+.shell-movil .est-color-libre {
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+  background: conic-gradient(#ff5d5d, #ffd23f, #5fe08a, #4cc9ff, #b07cff, #ff5d5d);
+  cursor: pointer;
+}
+
+.shell-movil .est-color-libre input {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  opacity: 0;
+  cursor: pointer;
+}
+
+.shell-movil .est-color-libre span {
+  padding: 2px 6px;
+  border-radius: 999px;
+  background: rgb(0 0 0 / 0.55);
+  color: #fff;
+  font: 700 11px var(--fuente-texto);
+  pointer-events: none;
+}
+
+.shell-movil .est-boton {
+  min-height: 48px;
+  border-radius: 999px;
+  background: var(--agua-honda);
+  color: var(--texto);
+  font-weight: 600;
+}
+
+.shell-movil .est-boton.peligro {
+  color: #ff8f8f;
+}
+
+.shell-movil .est-confirmar {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 8px 0;
+}
+
+.shell-movil .est-confirmar p {
+  margin: 8px 0;
+  line-height: 1.45;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .shell-movil .est-orden button,
+  .shell-movil .est-iconos button {
+    transition: none;
+  }
+}
