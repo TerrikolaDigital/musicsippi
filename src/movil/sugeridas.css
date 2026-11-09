@@ -1,0 +1,43 @@
+/* «Canciones sugeridas» al final de la lista de un mood */
+.sugeridas {
+  margin-top: 32px;
+  padding-bottom: 8px;
+}
+
+.sugeridas-titulo {
+  font: 600 22px/1.2 var(--fuente-titulos);
+  margin: 0;
+}
+
+.sugeridas-sub {
+  color: var(--tenue);
+  font-size: 14px;
+  margin: 4px 0 10px;
+}
+
+.sugeridas-error {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  color: var(--tenue);
+  font-size: 14px;
+  padding: 8px 0;
+}
+
+/* .shell-movil delante para ganar al reset `.shell-movil button` */
+.shell-movil .sugeridas-error button,
+.shell-movil .sugeridas-otras {
+  min-height: 44px;
+  padding: 0 18px;
+  border: 1px solid var(--linea-fuerte);
+  border-radius: 999px;
+  background: rgb(255 255 255 / 0.06);
+  color: var(--texto);
+  font: 600 14px var(--fuente-ui, inherit);
+}
+
+.shell-movil .sugeridas-otras {
+  display: block;
+  margin: 14px auto 0;
+}

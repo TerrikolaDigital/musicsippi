@@ -37,7 +37,7 @@ export default function FilaCancion({ track, meta, activa, onTocar, onMas, onPul
         onContextMenu={(e) => alLarga.current && e.preventDefault()}
         aria-label={`Reproducir ${formatearTitulo(track.titulo)}`}
       >
-        <PortadaImg src={url} texto={textoPortada(track, meta)} loading="lazy" claseSin="fila-cancion-sin" />
+        <PortadaImg src={url} respaldo={meta?.coverRespaldo} texto={textoPortada(track, meta)} loading="lazy" tam={120} claseSin="fila-cancion-sin" />
         <span className="fila-cancion-txt">
           <b>
             {activa && <OlaProgreso variante="icono" pausado={!!pausada} />}

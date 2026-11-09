@@ -10,7 +10,12 @@ import { cargarFuentesManual } from '../data/fuentes.js';
 import { obtenerSugerenciasClasificacion } from '../data/clasificacion.js';
 import { resolverVideoId, buscarExterno } from '../data/reproduccion.js';
 import { leerNivelar, guardarNivelar } from '../data/nivelar-volumen.js';
-import { formatearTitulo, reloj, colorDeEje } from '../ui/formato.js';
+import { formatearTitulo, reloj, colorDeEje, colorDeOrigen } from '../ui/formato.js';
+import OlaProgreso from '../movil/OlaProgreso.jsx';
+import { inicialesDe as inicialesLimpias } from '../movil/iniciales.js';
+import { respaldoDeUrl } from '../movil/respaldoPortadas.js';
+import { esPortadaGenerica } from '../movil/portadaPlaceholder.js';
+import { IconoC } from './iconosCorriente.jsx';
 import { fotoEsValida, colorDeArtista, Icono, separarArtistas, Ayuda, Escribinos, EditorEjes, SincronizacionMovil, AcercaDe } from './compartido.jsx';
 
 
@@ -55,8 +60,8 @@ export function tiempoRelativo(ts) {
 /** Iniciales de hasta 2 palabras — "Siempre Es Hoy" -> "SE" — para el
  * mismo tipo de icono de color que colorDeArtista cuando no hay carátula. */
 export function inicialesDe(texto) {
-  const palabras = formatearTitulo(texto).split(/\s+/).filter(Boolean);
-  return (palabras[0]?.[0] ?? '') + (palabras[1]?.[0] ?? '');
+  // Solo letras y números: «Sing (Original…)» da «SO», nunca «S(».
+  return inicialesLimpias(formatearTitulo(texto));
 }
 
 /**
@@ -80,17 +85,31 @@ export function FotoOIniciales({
   loading = 'lazy',
   onClick,
   style,
+  respaldos,
 }) {
-  const [fallo, setFallo] = useState(false);
-  const src = fotoEsValida(foto) ? foto : null;
-  if (src && !fallo) {
+  // Prueba en orden: la foto, sus respaldos (p. ej. otras portadas del álbum) y el respaldo global de esa
+  // carátula (miniatura del vídeo, ver respaldoPortadas.js). Una que no carga o es la carátula gris genérica de
+  // Deezer cuenta como fallo y pasa a la siguiente; las iniciales solo si no queda ninguna.
+  const [fallos, setFallos] = useState([]);
+  const candidatas = [foto, ...(respaldos ?? []), respaldoDeUrl(foto)].filter((u, i, a) => fotoEsValida(u) && a.indexOf(u) === i);
+  const src = candidatas.find((u) => !fallos.includes(u)) ?? null;
+  const marcarFallo = (u) => setFallos((f) => (f.includes(u) ? f : [...f, u]));
+  useEffect(() => {
+    let vigente = true;
+    if (src) esPortadaGenerica(src).then((gris) => vigente && gris && marcarFallo(src));
+    return () => {
+      vigente = false;
+    };
+  }, [src]);
+  if (src) {
     return (
       <img
+        key={src}
         className={className}
         src={src}
         alt=""
         loading={loading}
-        onError={() => setFallo(true)}
+        onError={() => marcarFallo(src)}
         onClick={onClick}
         style={style}
       />
@@ -236,8 +255,23 @@ export function OnboardingTour({ onCerrar, esDemo, onIrADestino }) {
   const pasos = useMemo(() => armarPasosTour(esDemo), [esDemo]);
   const [paso, setPaso] = useState(0);
   const [rect, setRect] = useState(null);
+  // Alto real del globo (cambia con el texto de cada paso): sin él no se puede
+  // asegurar que el globo entero, botones incluidos, quede dentro de la ventana.
+  const globoRef = useRef(null);
+  const [altoGlobo, setAltoGlobo] = useState(0);
+  useLayoutEffect(() => {
+    const h = globoRef.current?.offsetHeight ?? 0;
+    if (h && h !== altoGlobo) setAltoGlobo(h);
+  });
   const esUltimo = paso === pasos.length - 1;
   const actual = pasos[paso];
+
+  // En Electron las zonas de arrastre de la ventana se tragan los clics del globo
+  // cuando cae encima de ellas: se apagan mientras el recorrido está abierto.
+  useEffect(() => {
+    document.body.classList.add('tour-abierto');
+    return () => document.body.classList.remove('tour-abierto');
+  }, []);
 
   // Navega a la pantalla del paso actual y, recién cuando React ya aplicó
   // ese cambio Y volvió a pintar (de ahí el doble rAF: el primero corre
@@ -283,17 +317,29 @@ export function OnboardingTour({ onCerrar, esDemo, onIrADestino }) {
   let estiloGlobo;
   let estiloFlecha = null;
   let claseFlecha = 'onboarding-tour-flecha-arriba';
+  const alto = altoGlobo || 320;
+  const M = MARGEN_GLOBO_TOUR;
   if (rect) {
     const espacioAbajo = window.innerHeight - rect.bottom;
-    const vaArriba = espacioAbajo < 200 && rect.top > espacioAbajo;
-    let left = rect.left + rect.width / 2 - ANCHO_GLOBO_TOUR / 2;
-    left = Math.max(MARGEN_GLOBO_TOUR, Math.min(left, window.innerWidth - ANCHO_GLOBO_TOUR - MARGEN_GLOBO_TOUR));
-    estiloGlobo = vaArriba
-      ? { left, bottom: window.innerHeight - rect.top + MARGEN_GLOBO_TOUR }
-      : { left, top: rect.bottom + MARGEN_GLOBO_TOUR };
-    claseFlecha = vaArriba ? 'onboarding-tour-flecha-abajo' : 'onboarding-tour-flecha-arriba';
-    const flechaLeft = Math.max(16, Math.min(rect.left + rect.width / 2 - left, ANCHO_GLOBO_TOUR - 16));
-    estiloFlecha = { left: flechaLeft };
+    const espacioArriba = rect.top;
+    const cabeAbajo = espacioAbajo >= alto + 2 * M;
+    const cabeArriba = espacioArriba >= alto + 2 * M;
+    if (!cabeAbajo && !cabeArriba && rect.right + ANCHO_GLOBO_TOUR + 2 * M <= window.innerWidth) {
+      // Elemento alto (la orilla entera) en una ventana baja: el globo va a su
+      // derecha, centrado y siempre dentro de la ventana, para que «Siguiente» se vea.
+      const top = Math.max(M, Math.min(rect.top + rect.height / 2 - alto / 2, window.innerHeight - alto - M));
+      estiloGlobo = { left: rect.right + M, top };
+    } else {
+      const vaArriba = !cabeAbajo && espacioArriba > espacioAbajo;
+      let left = rect.left + rect.width / 2 - ANCHO_GLOBO_TOUR / 2;
+      left = Math.max(M, Math.min(left, window.innerWidth - ANCHO_GLOBO_TOUR - M));
+      estiloGlobo = vaArriba
+        ? { left, bottom: Math.min(window.innerHeight - rect.top + M, window.innerHeight - alto - M) }
+        : { left, top: Math.max(M, Math.min(rect.bottom + M, window.innerHeight - alto - M)) };
+      claseFlecha = vaArriba ? 'onboarding-tour-flecha-abajo' : 'onboarding-tour-flecha-arriba';
+      const flechaLeft = Math.max(16, Math.min(rect.left + rect.width / 2 - left, ANCHO_GLOBO_TOUR - 16));
+      estiloFlecha = { left: flechaLeft };
+    }
   } else {
     estiloGlobo = { left: '50%', top: '50%', transform: 'translate(-50%, -50%)' };
   }
@@ -308,7 +354,7 @@ export function OnboardingTour({ onCerrar, esDemo, onIrADestino }) {
       ) : (
         <div className="onboarding-tour-fondo-completo" />
       )}
-      <div className="onboarding-tarjeta onboarding-globo" style={estiloGlobo}>
+      <div className="onboarding-tarjeta onboarding-globo" style={estiloGlobo} ref={globoRef}>
         {estiloFlecha && <span className={`onboarding-tour-flecha ${claseFlecha}`} style={estiloFlecha} />}
         <button className="onboarding-saltar" onClick={onCerrar}>
           Saltar
@@ -898,7 +944,7 @@ export function BarraReproductor({
   anterior,
   siguiente,
   repetir,
-  setRepetir,
+  alternarRepetir,
   aleatorio,
   setAleatorio,
   posicion,
@@ -920,8 +966,8 @@ export function BarraReproductor({
   fijarTemporizador,
   onRadio,
   onVerLetras,
+  modoOrigen,
 }) {
-  const pct = duracion > 0 ? (tiempo / duracion) * 100 : 0;
   const [guardandoFavorito, setGuardandoFavorito] = useState(false);
 
   async function clickFavorito() {
@@ -969,10 +1015,28 @@ export function BarraReproductor({
     ? () => onAbrirAlbum(track.artista, track.titulo, metadata.album)
     : undefined;
 
+  // La ola se dibuja con el ancho real en px (si no, la onda se estira).
+  const olaRef = useRef(null);
+  const [anchoOla, setAnchoOla] = useState(0);
+  useLayoutEffect(() => {
+    const nodo = olaRef.current;
+    if (!nodo) return undefined;
+    const medir = () => setAnchoOla(nodo.clientWidth);
+    medir();
+    const ro = new ResizeObserver(medir);
+    ro.observe(nodo);
+    return () => ro.disconnect();
+  }, []);
+
+  const colorModo = colorDeOrigen(modoOrigen);
+
+  // v4 «La corriente» (docs/maquetas/escritorio-v4-corriente.md): barra de vidrio
+  // flotante en tres columnas. Izquierda: portada, título, artista · álbum, modo
+  // de origen y corazón. Centro: transporte y la ola de progreso. Derecha:
+  // temporizador, letra, radio, cola, volumen y «⋮» (con «Volver a empezar»).
   return (
-    <div className="barra">
-      <div className="barra-interior">
-      <div className="barra-info">
+    <div className={sonando ? 'barra barra-corriente' : 'barra barra-corriente en-pausa'}>
+      <div className="barra-izq">
         <FotoOIniciales
           foto={metadata.coverUrl}
           nombre={metadata.album || track.titulo}
@@ -987,141 +1051,158 @@ export function BarraReproductor({
           </button>
           <span className="barra-titulo-artista">
             <ArtistaTexto artista={track.artista} onAbrirArtista={onAbrirArtista} />
-          </span>
-          {metadata.album && (
-            <button className="barra-titulo-album" onClick={abrirAlbumDeEsteTrack} title="Ver álbum">
-              {formatearTitulo(metadata.album)}
-            </button>
-          )}
-        </div>
-      </div>
-
-      <div className="barra-controles">
-        {/* Los "íconos principales" (pedido explícito): me gusta + transporte
-            + cola con su número. Van centrados, con la línea de tiempo
-            centrada debajo cubriendo el mismo ancho — volumen y el menú
-            "..." son secundarios y viven aparte, pegados al borde derecho
-            (ver .barra-derecha). */}
-        <div className="barra-controles-iconos">
-          {esSintetico ? (
-            estadoAgregarActual === 'ok' ? (
-              <span className="c-preview-estado" title="Agregada a tu biblioteca">✓ Agregada</span>
-            ) : estadoAgregarActual === 'error' ? (
-              <span className="c-preview-estado c-preview-error" title="No se pudo agregar">Error</span>
-            ) : (
+            {metadata.album && (
               <>
-                <button
-                  onClick={() => agregarActualDesdePreview(true)}
-                  disabled={estadoAgregarActual === 'agregando'}
-                  title="Agregar a mi biblioteca y a me gusta"
-                  aria-label="Agregar a mi biblioteca y a me gusta"
-                >
-                  ♡
-                </button>
-                <button
-                  onClick={() => agregarActualDesdePreview(false)}
-                  disabled={estadoAgregarActual === 'agregando'}
-                  title="Agregar a mi biblioteca"
-                  aria-label="Agregar a mi biblioteca"
-                >
-                  {estadoAgregarActual === 'agregando' ? '…' : '＋'}
+                <span className="barra-sep" aria-hidden="true">
+                  {' · '}
+                </span>
+                <button className="barra-titulo-album" onClick={abrirAlbumDeEsteTrack} title="Ver álbum">
+                  {formatearTitulo(metadata.album)}
                 </button>
               </>
-            )
-          ) : (
-            <button
-              className={favorito ? 'activo' : ''}
-              onClick={clickFavorito}
-              disabled={guardandoFavorito}
-              title={favorito ? 'Quitar de me gusta' : 'Agregar a me gusta'}
-              aria-label={favorito ? 'Quitar de me gusta' : 'Agregar a me gusta'}
-            >
-              {favorito ? '♥' : '♡'}
-            </button>
+            )}
+          </span>
+          {modoOrigen?.nombre && (
+            <span className="barra-chip-modo" style={colorModo ? { '--c-modo': colorModo } : undefined}>
+              <i aria-hidden="true" />
+              {formatearTitulo(modoOrigen.nombre)}
+            </span>
           )}
+        </div>
+        {esSintetico ? (
+          estadoAgregarActual === 'ok' ? (
+            <span className="c-preview-estado" title="Agregada a tu biblioteca">✓ Agregada</span>
+          ) : estadoAgregarActual === 'error' ? (
+            <span className="c-preview-estado c-preview-error" title="No se pudo agregar">Error</span>
+          ) : (
+            <span className="barra-agregar">
+              <button
+                className="ctl"
+                onClick={() => agregarActualDesdePreview(true)}
+                disabled={estadoAgregarActual === 'agregando'}
+                title="Agregar a mi biblioteca y a me gusta"
+                aria-label="Agregar a mi biblioteca y a me gusta"
+              >
+                <IconoC nombre="corazon" tamano={19} />
+              </button>
+              <button
+                className="ctl"
+                onClick={() => agregarActualDesdePreview(false)}
+                disabled={estadoAgregarActual === 'agregando'}
+                title="Agregar a mi biblioteca"
+                aria-label="Agregar a mi biblioteca"
+              >
+                {estadoAgregarActual === 'agregando' ? '…' : <IconoC nombre="anadir" tamano={19} />}
+              </button>
+            </span>
+          )
+        ) : (
+          <button
+            className={favorito ? 'ctl barra-megusta activo' : 'ctl barra-megusta'}
+            onClick={clickFavorito}
+            disabled={guardandoFavorito}
+            aria-pressed={favorito}
+            title={favorito ? 'Quitar de me gusta' : 'Agregar a me gusta'}
+            aria-label={favorito ? 'Quitar de me gusta' : 'Agregar a me gusta'}
+          >
+            <IconoC nombre="corazon" tamano={19} relleno={favorito} />
+          </button>
+        )}
+      </div>
 
-          <div className="barra-botones">
-            <button
-              className={aleatorio ? 'activo' : ''}
-              onClick={() => setAleatorio()}
-              title={aleatorio ? 'Desactivar aleatorio' : 'Activar aleatorio'}
-              aria-label={aleatorio ? 'Desactivar aleatorio' : 'Activar aleatorio'}
-            >
-              <Icono nombre="aleatorio" />
-            </button>
-            <button onClick={anterior} title="Anterior" aria-label="Track anterior">
-              ⏮
-            </button>
-            <button
-              className="principal"
-              onClick={alternarPausa}
-              title="Reproducir / pausar"
-              aria-label={sonando ? 'Pausar' : 'Reproducir'}
-            >
-              {sonando ? '❚❚' : '▶'}
-            </button>
-            <button onClick={siguiente} title="Siguiente" aria-label="Siguiente track">
-              ⏭
-            </button>
-            <button
-              className={repetir ? 'activo' : ''}
-              onClick={() => setRepetir((r) => !r)}
-              title="Repetir"
-              aria-label={repetir ? 'Desactivar repetición' : 'Activar repetición'}
-            >
-              <Icono nombre="repetir" />
-            </button>
-            {/* Estaba dentro del menú "⋮", con los secundarios. Es una acción
-                de transporte como ⏮/⏭ (seekTo(0) del track que suena, lo
-                mismo que hace `repetir` al terminar), así que su lugar es
-                acá, a la vista, junto al resto. */}
-            <button className="barra-reiniciar" onClick={reiniciar} title="Volver a empezar" aria-label="Volver a empezar">
-              ↺
-            </button>
-          </div>
-
-          <div className="barra-cola-grupo">
-            <span className="barra-pos">{posicion}</span>
-            <IndicadorTemporizador temporizador={temporizador} onApagar={() => fijarTemporizador?.(null)} />
-            <ColaFlotante
-              cola={cola}
-              indice={indice}
-              setIndice={setIndice}
-              onQuitar={onQuitarDeCola}
-              onMoverAPosicion={onMoverAPosicion}
-              onAbrirCola={onAbrirCola}
-              onAbrirArtista={onAbrirArtista}
-            />
-          </div>
+      <div className="barra-centro">
+        <div className="barra-botones">
+          <button
+            className={aleatorio ? 'ctl activo' : 'ctl'}
+            onClick={() => setAleatorio()}
+            aria-pressed={aleatorio}
+            title={aleatorio ? 'Desactivar aleatorio' : 'Activar aleatorio'}
+            aria-label={aleatorio ? 'Desactivar aleatorio' : 'Activar aleatorio'}
+          >
+            <IconoC nombre="aleatorio" tamano={19} />
+          </button>
+          <button className="ctl salto" onClick={anterior} title="Anterior" aria-label="Track anterior">
+            <IconoC nombre="anterior" tamano={22} relleno />
+          </button>
+          <button
+            className="principal"
+            onClick={alternarPausa}
+            title="Reproducir / pausar"
+            aria-label={sonando ? 'Pausar' : 'Reproducir'}
+          >
+            <IconoC nombre={sonando ? 'pausa' : 'play'} tamano={20} relleno />
+          </button>
+          <button className="ctl salto" onClick={siguiente} title="Siguiente" aria-label="Siguiente track">
+            <IconoC nombre="siguiente" tamano={22} relleno />
+          </button>
+          <button
+            className={repetir ? 'ctl activo' : 'ctl'}
+            onClick={alternarRepetir}
+            aria-pressed={repetir}
+            title="Repetir"
+            aria-label={repetir ? 'Desactivar repetición' : 'Activar repetición'}
+          >
+            <IconoC nombre="repetir" tamano={19} />
+          </button>
         </div>
 
         <div className="barra-progreso">
           <span className="t">{reloj(tiempo)}</span>
-          <input
-            type="range"
-            min={0}
-            max={duracion || 0}
-            step={1}
-            value={Math.min(tiempo, duracion || 0)}
-            onChange={(e) => buscar(Number(e.target.value))}
-            disabled={!duracion}
-          />
+          <div className="barra-ola" ref={olaRef}>
+            <OlaProgreso
+              variante="escritorio"
+              ancho={anchoOla}
+              progreso={duracion > 0 ? tiempo / duracion : 0}
+              pausado={!sonando}
+            >
+              <input
+                type="range"
+                min={0}
+                max={duracion || 0}
+                step={1}
+                value={Math.min(tiempo, duracion || 0)}
+                onChange={(e) => buscar(Number(e.target.value))}
+                disabled={!duracion}
+                aria-label="Posición en la canción"
+                aria-valuetext={`${reloj(tiempo)} de ${reloj(duracion)}`}
+              />
+            </OlaProgreso>
+          </div>
           <span className="t">{reloj(duracion)}</span>
         </div>
       </div>
 
       <div className="barra-derecha">
-        {/* Oculto en iOS: setVolume() ahi no hace nada, el volumen es solo por
-            hardware (ver esIOS arriba). Mostrar un slider inerte confunde mas
-            que no mostrar nada. */}
+        <IndicadorTemporizador temporizador={temporizador} onApagar={() => fijarTemporizador?.(null)} />
+        {onVerLetras && (
+          <button className="ctl" onClick={onVerLetras} title="Ver letra" aria-label="Ver letra">
+            <IconoC nombre="letra" tamano={19} />
+          </button>
+        )}
+        {onRadio && (
+          <button className="ctl" onClick={onRadio} title="Radio desde esta canción" aria-label="Radio desde esta canción">
+            <IconoC nombre="radio" tamano={19} />
+          </button>
+        )}
+        <ColaFlotante
+          cola={cola}
+          indice={indice}
+          setIndice={setIndice}
+          onQuitar={onQuitarDeCola}
+          onMoverAPosicion={onMoverAPosicion}
+          onAbrirCola={onAbrirCola}
+          onAbrirArtista={onAbrirArtista}
+        />
+        {/* Oculto en iOS: setVolume() ahí no hace nada (volumen solo por hardware). */}
         {!esIOS && (
-          <div className="barra-volumen">
+          <div className="barra-volumen" style={{ '--vol': `${volumen}%` }}>
             <button
+              className="ctl"
               onClick={alternarSilencio}
               title={volumen === 0 ? 'Activar sonido' : 'Silenciar'}
               aria-label={volumen === 0 ? 'Activar sonido' : 'Silenciar'}
             >
-              <Icono nombre={volumen === 0 ? 'silencio' : volumen < 50 ? 'volumen-bajo' : 'volumen-alto'} />
+              <IconoC nombre={volumen === 0 ? 'silencio' : volumen < 50 ? 'volumen-bajo' : 'volumen'} tamano={19} />
             </button>
             <input
               type="range"
@@ -1134,14 +1215,9 @@ export function BarraReproductor({
             />
           </div>
         )}
-
-        {/* Todo lo que no entra en la fila principal (menos usado: reiniciar,
-            ver en YouTube, ficha completa con "corregir datos") vive acá —
-            pedido explícito de no saturar la barra con más de un puñado de
-            botones a la vista. */}
         <BarraMas
-          onRadio={onRadio}
-          onVerLetras={onVerLetras}
+          onReiniciar={reiniciar}
+          posicion={posicion}
           temporizador={temporizador}
           fijarTemporizador={fijarTemporizador}
           track={track}
@@ -1153,7 +1229,6 @@ export function BarraReproductor({
           onAbrirArtista={onAbrirArtista}
           onQuitarTrack={onQuitarTrack}
         />
-      </div>
       </div>
     </div>
   );
@@ -1179,7 +1254,7 @@ export function IndicadorTemporizador({ temporizador, onApagar }) {
     : 'fin';
   return (
     <button className="barra-temporizador" onClick={onApagar} title="Temporizador para dormir (tocar para apagar)">
-      🌙 {texto}
+      <IconoC nombre="luna" tamano={15} /> {texto}
     </button>
   );
 }
@@ -1187,6 +1262,8 @@ export function IndicadorTemporizador({ temporizador, onApagar }) {
 export const OPCIONES_TEMPORIZADOR = [15, 30, 45, 60];
 
 export function BarraMas({
+  onReiniciar,
+  posicion,
   onRadio,
   onVerLetras,
   temporizador,
@@ -1222,12 +1299,19 @@ export function BarraMas({
 
   return (
     <details className="barra-mas" ref={detallesRef} onToggle={(e) => e.target.open && posicionar()}>
-      <summary title="Más opciones" aria-label="Más opciones">
-        ⋮
+      <summary className="ctl" title="Más opciones" aria-label="Más opciones">
+        <IconoC nombre="mas" tamano={19} relleno />
       </summary>
       <div className="barra-mas-panel" ref={panelRef}>
-        {/* "Volver a empezar" se mudó a la fila principal de la barra (ver
-            .barra-botones). Acá quedan solo los secundarios de verdad. */}
+        {/* v4: «Volver a empezar» y la posición en la cola volvieron a este menú
+            (la barra deja a la vista solo transporte, ola y los accesos de la
+            derecha). Letra y radio, al revés, salieron a la barra. */}
+        {posicion && <p className="barra-mas-posicion">Canción {posicion.replace(' / ', ' de ')}</p>}
+        {onReiniciar && (
+          <button onClick={() => (cerrar(), onReiniciar())}>
+            <span aria-hidden="true">↺</span> Volver a empezar
+          </button>
+        )}
         {onVerLetras && (
           <button onClick={() => (cerrar(), onVerLetras())}>
             <span aria-hidden="true">🎤</span> Ver letra
@@ -1331,12 +1415,12 @@ export function ColaFlotante({ cola, indice, setIndice, onQuitar, onMoverAPosici
 
   return (
     <details className="barra-cola-flotante" ref={detallesRef} onToggle={(e) => e.target.open && posicionar()}>
-      <summary className="barra-cola" title="Ver cola" aria-label="Ver cola">
-        ☰
+      <summary className="barra-cola ctl" title="Ver cola" aria-label="Ver cola">
+        <IconoC nombre="cola" tamano={19} />
       </summary>
       <div className="barra-cola-panel" ref={panelRef}>
         <div className="barra-cola-panel-cabecera">
-          <span>{cola.length} en cola</span>
+          <span>{cola.length > 0 ? `${indice + 1} de ${cola.length} en cola` : '0 en cola'}</span>
           <button onClick={onAbrirCola}>Ver todo →</button>
         </div>
         <ol className="barra-cola-panel-lista">
@@ -1774,7 +1858,7 @@ export function VistaAlbum({
             {nuevos > 0 && ` · ${nuevos} que todavía no tenés`}
           </p>
           <div className="album-botones">
-            <button className="album-reproducir" onClick={() => onReproducir(0)}>
+            <button className="album-reproducir" onClick={() => onReproducir()}>
               ▶ Reproducir álbum
             </button>
             <button className="album-agregar" onClick={manejarAgregar} disabled={agregando}>
@@ -2106,7 +2190,7 @@ export function VistaArtista({
           </p>
           <div className="album-botones">
             {encontrado ? (
-              <button className="album-reproducir" onClick={() => onReproducir(0)}>
+              <button className="album-reproducir" onClick={() => onReproducir()}>
                 ▶ Reproducir populares
               </button>
             ) : (
@@ -2404,8 +2488,13 @@ export function TarjetaModo({
     panel.style.right = `${Math.max(8, window.innerWidth - r.right)}px`;
   }
 
+  // v4: tarjeta de modo del móvil (degradado de --c, corrientes grabadas,
+  // portada inclinada); el ▶ aparece con hover o foco.
   return (
-    <div className="tarjeta-fila-contenedor">
+    <div
+      className={eje.id === 'favoritos' ? 'tarjeta-fila-contenedor es-favoritas' : 'tarjeta-fila-contenedor'}
+      style={{ '--c': colorDeEje(eje) }}
+    >
     <div className="tarjeta-fila">
       <button className="tarjeta-fila-principal" onClick={() => onEntrar(eje)}>
         <span
@@ -2442,7 +2531,7 @@ export function TarjetaModo({
           title="Reproducir"
           aria-label={`Reproducir ${formatearTitulo(eje.nombre)}`}
         >
-          ▶
+          <IconoC nombre="play" tamano={16} relleno />
         </button>
       )}
       {onOcultar && !eje.sistema && (
@@ -2452,7 +2541,7 @@ export function TarjetaModo({
           onToggle={(e) => e.target.open && posicionar()}
         >
           <summary title="Más opciones" aria-label="Más opciones">
-            ⋮
+            <IconoC nombre="mas" tamano={16} relleno />
           </summary>
           <div className="tarjeta-fila-mas-panel" ref={panelRef}>
             <button onClick={() => onOcultar(eje.id)}>Ocultar del Inicio</button>
@@ -2599,7 +2688,7 @@ export function MenuListas({ track, ejes, tracks, onAlternar, onAsignarModo, onQ
  * `.cola-controles`, que no tiene scroll propio (mismo criterio que
  * .tarjeta-fila-mas-panel). Reemplaza a un <select> nativo puntualmente
  * porque el listado de opciones de un <select> lo pinta el navegador/SO
- * (el azul nativo de Windows/Chrome en una captura real), fuera del
+ * (el azul nativo de Windows/Chrome en la captura del usuario), fuera del
  * alcance de la paleta de colores de la app.
  */
 export function SelectorAgrupar({ valor, onCambiar }) {
@@ -3233,7 +3322,7 @@ export function ArtistaTexto({ artista, onAbrirArtista }) {
 }
 
 /**
- * Busca DENTRO de la biblioteca, no en un catálogo externo.
+ * Busca DENTRO de tu biblioteca (2.179 tracks), no en un catálogo externo.
  * Buscar algo que no tenés todavía es otra funcionalidad, más grande —
  * requiere clasificar el track nuevo y resolverlo contra YouTube — y queda
  * pendiente aparte.
@@ -3573,7 +3662,7 @@ export function Buscador({
                   patrón que Tendencias/Explorar): el artista tiene que poder
                   llevar a su ficha sin disparar la apertura del álbum. */}
               <button className="artista-album-tile-btn" onClick={() => onAbrirAlbum(a.artista, a.titulo, a.titulo)}>
-                <FotoOIniciales foto={a.coverUrl} nombre={a.titulo} claseVacia="artista-album-tile-vacia" />
+                <FotoOIniciales foto={a.coverUrl} respaldos={a.portadas} nombre={a.titulo} claseVacia="artista-album-tile-vacia" />
                 <span className="artista-album-tile-titulo">{formatearTitulo(a.titulo)}</span>
               </button>
               {/* ArtistaTexto, no un botón único con el crédito entero: a.artista
@@ -4493,6 +4582,20 @@ export function Historial({
  * "Ayuda" del header necesita poder forzar esa pestaña puntual aunque
  * Administrar ya esté montado en otra.
  */
+// Pestañas de Configuración en el orden de la maqueta v4 (los ids son los de siempre).
+const PESTANAS_CONFIG = [
+  { id: 'modos', texto: 'Modos y listas', icono: 'ondas' },
+  { id: 'cargar', texto: 'Cargar biblioteca', icono: 'cargar', tour: 'cargar-biblioteca' },
+  { id: 'backup', texto: 'Copia de seguridad', icono: 'backup' },
+  { id: 'reproduccion', texto: 'Reproducción', icono: 'volumen' },
+  { id: 'movil', texto: 'Móvil', icono: 'movil' },
+  { hueco: 'h1' },
+  { id: 'ayuda', texto: 'Ayuda', icono: 'ayuda' },
+  { id: 'escribinos', texto: 'Escribinos', icono: 'carta' },
+  { id: 'acerca', texto: 'Acerca de', icono: 'info' },
+  { id: 'avanzado', texto: 'Avanzado', icono: 'llave', discreta: true },
+];
+
 export function Administrar({
   ejes,
   conteos,
@@ -4514,73 +4617,46 @@ export function Administrar({
 }) {
   return (
     <main className="administrar">
-      <button className="volver" onClick={onVolver}>
-        ← Inicio
-      </button>
-      <h2>Configuración</h2>
+      <h1 className="titulo-pantalla">Configuración</h1>
       {/* Indicador pasivo, solo acá adentro — nunca en el Home ni en la
-          barra de navegación global (pedido explícito). Neutro con 0,
-          color de alerta cuando hay algo real para revisar. */}
-      {/* Oculto mientras el enriquecimiento automático está activo — pedido
-          explícito: ofrecer clasificación MANUAL en paralelo con el
-          automático corriendo es la misma carrera que ya se evitó entre
-          ambos caminos (ver 2026-09-11-quitar-revision-modos-post-import-design.md).
-          Vuelve a aparecer solo cuando termina el ciclo. */}
+          barra de navegación global (pedido explícito). Oculto mientras el
+          enriquecimiento automático está activo (ver
+          2026-09-11-quitar-revision-modos-post-import-design.md). */}
       {pendientesDeClasificar > 0 && !estadoEnriquecimiento?.activo && (
         <p className="aviso-sin-clasificar">
           {pendientesDeClasificar} {pendientesDeClasificar === 1 ? 'canción' : 'canciones'} todavía sin
           clasificar
-          {/* On-demand a propósito (Tarea 17): la pantalla de clasificación
-              asistida solo se abre si la persona lo pide acá — mismo espíritu
-              de "nunca molesta sola" que ya rige este indicador pasivo. */}
+          {/* On-demand a propósito (Tarea 17): solo se abre si la persona lo pide. */}
           <button className="clasificar-ahora" onClick={onClasificarAsistida}>
             Clasificar ahora
           </button>
         </p>
       )}
 
-      {/* El aviso de enriquecimiento (spec
-          2026-09-08-enriquecimiento-automatico-design.md) ya no vive acá — se
-          movió a un solo lugar fijo arriba de <header>, visible en toda la
-          app sin importar la pantalla (pedido explícito, ver el div .app). */}
+      {/* v4: pestañas verticales (nueve no entran bien en una fila). «Avanzado»
+          sigue al final y en tono más bajo: semioculto a propósito (spec,
+          Reinicio total). «Inicio» ya está a un clic en la orilla. */}
+      <div className="config">
+        <nav className="tabs" aria-label="Secciones de Configuración">
+          {PESTANAS_CONFIG.map((p) =>
+            p.hueco ? (
+              <span key={p.hueco} className="tabs-hueco" aria-hidden="true" />
+            ) : (
+              <button
+                key={p.id}
+                className={[tab === p.id ? 'activo' : '', p.discreta ? 'discreta' : ''].filter(Boolean).join(' ')}
+                aria-current={tab === p.id ? 'page' : undefined}
+                onClick={() => setTab(p.id)}
+                data-tour={p.tour}
+              >
+                <IconoC nombre={p.icono} tamano={18} />
+                {p.texto}
+              </button>
+            )
+          )}
+        </nav>
 
-      <div className="tabs">
-        <button className={tab === 'modos' ? 'activo' : ''} onClick={() => setTab('modos')}>
-          Administrar modos/listas
-        </button>
-        <button
-          className={tab === 'cargar' ? 'activo' : ''}
-          onClick={() => setTab('cargar')}
-          data-tour="cargar-biblioteca"
-        >
-          Cargar biblioteca
-        </button>
-        <button className={tab === 'backup' ? 'activo' : ''} onClick={() => setTab('backup')}>
-          Backup
-        </button>
-        <button className={tab === 'reproduccion' ? 'activo' : ''} onClick={() => setTab('reproduccion')}>
-          Reproducción
-        </button>
-        <button className={tab === 'movil' ? 'activo' : ''} onClick={() => setTab('movil')}>
-          Móvil
-        </button>
-        <button className={tab === 'acerca' ? 'activo' : ''} onClick={() => setTab('acerca')}>
-          Acerca de
-        </button>
-        <button className={tab === 'ayuda' ? 'activo' : ''} onClick={() => setTab('ayuda')}>
-          Ayuda
-        </button>
-        <button className={tab === 'escribinos' ? 'activo' : ''} onClick={() => setTab('escribinos')}>
-          Escribinos
-        </button>
-        {/* Semi-oculto a propósito (spec, Reinicio total): no va en el menú
-            principal ni tiene un ícono llamativo — solo otro tab más al
-            fondo de Configuración, igual que los demás. */}
-        <button className={tab === 'avanzado' ? 'activo' : ''} onClick={() => setTab('avanzado')}>
-          Avanzado
-        </button>
-      </div>
-
+        <div className="config-contenido">
       {tab === 'ayuda' && (
         <Ayuda
           onVerOnboarding={onVerOnboarding}
@@ -4612,6 +4688,8 @@ export function Administrar({
       {tab === 'movil' && <SincronizacionMovil />}
       {tab === 'avanzado' && <ReinicioTotal />}
       {tab === 'acerca' && <AcercaDe />}
+        </div>
+      </div>
     </main>
   );
 }
@@ -4621,19 +4699,25 @@ export function Administrar({
 export function AjustesReproduccion() {
   const [nivelar, setNivelar] = useState(() => leerNivelar());
   return (
-    <section className="ayuda-seccion">
-      <label className="ajuste-check">
-        <input
-          type="checkbox"
-          checked={nivelar}
-          onChange={(e) => {
-            guardarNivelar(e.target.checked);
-            setNivelar(e.target.checked);
+    <section className="ayuda-seccion grupo-aj">
+      <h2>Sonido</h2>
+      <div className="ajuste">
+        <div className="ajuste-txt">
+          <b id="aj-nivelar">Nivelar volumen</b>
+          <small>Que todas las canciones suenen a un volumen parecido: solo baja las que vienen más fuertes.</small>
+        </div>
+        <button
+          type="button"
+          className="interruptor"
+          role="switch"
+          aria-checked={nivelar}
+          aria-labelledby="aj-nivelar"
+          onClick={() => {
+            guardarNivelar(!nivelar);
+            setNivelar(!nivelar);
           }}
-        />{' '}
-        Nivelar volumen
-      </label>
-      <p className="ayuda">Que todas las canciones suenen a un volumen parecido: solo baja las que vienen más fuertes.</p>
+        />
+      </div>
     </section>
   );
 }

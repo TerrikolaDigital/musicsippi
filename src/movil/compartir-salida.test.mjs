@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { textoCompartir } from './compartir-salida.js';
+import { textoCompartir, textoCompartirApp } from './compartir-salida.js';
 
 const cero = () => 0;
 
@@ -41,4 +41,12 @@ test('artista: búsqueda por nombre', () => {
 
 test('tipo desconocido lanza error', () => {
   assert.throws(() => textoCompartir({ tipo: 'x', artista: 'A' }));
+});
+
+test('compartir la app: texto corto con los enlaces fijos a la última versión', () => {
+  const t = textoCompartirApp();
+  assert.match(t, /Musicsippi/);
+  assert.match(t, /según cómo te sientes/);
+  assert.ok(t.includes('https://github.com/TerrikolaDigital/musicsippi-android/releases/latest/download/Musicsippi.apk'));
+  assert.ok(t.includes('https://github.com/TerrikolaDigital/musicsippi/releases/latest/download/Musicsippi-Setup.exe'));
 });

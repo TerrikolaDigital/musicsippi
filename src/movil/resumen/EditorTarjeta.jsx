@@ -1,10 +1,11 @@
 // src/movil/resumen/EditorTarjeta.jsx
-// Editor de la tarjeta para compartir: elegir dato (carrusel de miniaturas), formato y fondo.
+// Editor de la tarjeta para compartir: elegir dato (carrusel de miniaturas), canción, formato y fondo.
 // La vista previa y las miniaturas usan el mismo dibujarTarjeta que genera la imagen final.
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { IconoM } from '../iconos.jsx';
 import { cargarImagenes, compartirTarjeta, dibujarTarjeta, esperarFuentes, guardarTarjeta, medidas } from './tarjeta.js';
-import { textoCompartir } from './datosTarjetas.js';
+import { conCancionElegida, hayTarjeta, opcionesCancion, soloConImagen, textoCompartir } from './datosTarjetas.js';
+import { coloresHistorias } from './coloresHistorias.js';
 
 const FORMATOS = [
   { id: 'historia', nombre: 'Historia', nota: '9:16' },
@@ -35,8 +36,10 @@ function Lienzo({ ancho, opciones, listo, ...resto }) {
   return <canvas ref={ref} {...resto} />;
 }
 
-export default function EditorTarjeta({ tarjetas, datos, urls, inicial, onCerrar }) {
-  const [tipo, setTipo] = useState(tarjetas.some((t) => t.tipo === inicial) ? inicial : tarjetas[0]?.tipo);
+export default function EditorTarjeta({ tarjetas: tarjetasBase, datos: datosBase, urls, inicial, onCerrar }) {
+  const [elegido, setTipo] = useState(inicial);
+  const [indices, setIndices] = useState({}); // tipo de tarjeta → canción elegida entre las candidatas
+  const [coloresElegidos, setColoresElegidos] = useState({}); // `${tipo}:${i}` → color de esa portada
   const [formato, setFormato] = useState('historia');
   const [estilo, setEstilo] = useState('color');
   const [imagenes, setImagenes] = useState({});
@@ -44,6 +47,32 @@ export default function EditorTarjeta({ tarjetas, datos, urls, inicial, onCerrar
   const [trabajando, setTrabajando] = useState(false);
   const [aviso, setAviso] = useState('');
   const activa = useRef(null);
+
+  // Con las imágenes ya cargadas, solo quedan tarjetas y filas con imagen real: nunca iniciales.
+  const limpio = useMemo(() => (listo ? soloConImagen(datosBase, imagenes) : { datos: datosBase, imagenes }), [listo, datosBase, imagenes]);
+  const tarjetas = useMemo(() => (listo ? tarjetasBase.filter((t) => hayTarjeta(t.tipo, limpio.datos)) : tarjetasBase), [listo, tarjetasBase, limpio]);
+  const tipo = tarjetas.some((t) => t.tipo === elegido) ? elegido : tarjetas[0]?.tipo;
+  const indiceDe = (t) => indices[t] ?? 0;
+  // Datos, imágenes y color de cada tarjeta con su canción elegida (cambian los tres juntos).
+  const porTipo = useMemo(() => {
+    const salida = {};
+    for (const t of tarjetas) {
+      const i = indices[t.tipo] ?? 0;
+      const r = i ? conCancionElegida(t.tipo, limpio.datos, limpio.imagenes, i) : limpio;
+      const color = coloresElegidos[`${t.tipo}:${i}`];
+      salida[t.tipo] = { datos: color ? { ...r.datos, colores: { ...r.datos.colores, [t.tipo]: color } } : r.datos, imagenes: r.imagenes };
+    }
+    return salida;
+  }, [tarjetas, indices, coloresElegidos, limpio]);
+  const datos = limpio.datos;
+  const opciones = opcionesCancion(tipo, datos);
+  const elegirCancion = (i) => {
+    setIndices((x) => ({ ...x, [tipo]: i }));
+    const url = opciones[i]?.url;
+    const clave = `${tipo}:${i}`;
+    if (!i || !url || coloresElegidos[clave]) return;
+    coloresHistorias({ bucle: url, descubre: url }, datos.color).then((c) => setColoresElegidos((x) => ({ ...x, [clave]: tipo === 'bucle' ? c.bucle : c.curioso })));
+  };
 
   useEffect(() => {
     let vivo = true;
@@ -72,7 +101,7 @@ export default function EditorTarjeta({ tarjetas, datos, urls, inicial, onCerrar
     setAviso('');
     try {
       const titulo = datos.tipoPeriodo === 'anio' ? 'Mi año en Musicsippi' : 'Mi semana en Musicsippi';
-      const r = await compartirTarjeta({ tipo, formato, estilo, datos, imagenes }, titulo, textoCompartir(tipo, datos));
+      const r = await compartirTarjeta({ tipo, formato, estilo, ...porTipo[tipo] }, titulo, textoCompartir(tipo, porTipo[tipo].datos));
       if (r === 'copiado') setAviso('Resumen copiado');
       else if (r === 'descargada') setAviso('Imagen descargada');
     } catch {
@@ -86,7 +115,7 @@ export default function EditorTarjeta({ tarjetas, datos, urls, inicial, onCerrar
     setTrabajando(true);
     setAviso('');
     try {
-      const r = await guardarTarjeta({ tipo, formato, estilo, datos, imagenes });
+      const r = await guardarTarjeta({ tipo, formato, estilo, ...porTipo[tipo] });
       setAviso(r === 'galeria' ? 'Guardada en la galería' : 'Imagen descargada');
     } catch (e) {
       console.warn('Resumen: no se pudo guardar la tarjeta', e);
@@ -96,7 +125,7 @@ export default function EditorTarjeta({ tarjetas, datos, urls, inicial, onCerrar
     }
   };
 
-  const base = { formato, estilo, datos, imagenes };
+  const base = { formato, estilo };
   return (
     <div className="edtar" role="dialog" aria-label="Compartir tarjeta">
       <div className="edtar-cab">
@@ -106,7 +135,7 @@ export default function EditorTarjeta({ tarjetas, datos, urls, inicial, onCerrar
         </button>
       </div>
       <div className="edtar-vista">
-        <Lienzo className={`edtar-lienzo${listo ? ' lista' : ''}`} style={{ '--r': formato === 'cuadrado' ? 1 : 9 / 16 }} ancho={720} listo={listo} opciones={{ ...base, tipo }} />
+        <Lienzo className={`edtar-lienzo${listo ? ' lista' : ''}`} style={{ '--r': formato === 'cuadrado' ? 1 : 9 / 16 }} ancho={720} listo={listo} opciones={{ ...base, tipo, ...porTipo[tipo] }} />
       </div>
       <div className="edtar-tira" role="listbox" aria-label="Dato que compartir">
         {tarjetas.map((t) => (
@@ -118,11 +147,20 @@ export default function EditorTarjeta({ tarjetas, datos, urls, inicial, onCerrar
             className={`edtar-mini${t.tipo === tipo ? ' activa' : ''}`}
             onClick={() => setTipo(t.tipo)}
           >
-            <Lienzo ancho={156} listo={listo} opciones={{ ...base, tipo: t.tipo }} aria-hidden="true" />
+            <Lienzo ancho={156} listo={listo} opciones={{ ...base, tipo: t.tipo, ...porTipo[t.tipo] }} aria-hidden="true" />
             <span>{t.nombre}</span>
           </button>
         ))}
       </div>
+      {opciones.length > 0 && (
+        <div className="edtar-canciones" role="group" aria-label="Canción de la tarjeta">
+          {opciones.map((o, i) => (
+            <button key={o.url} aria-label={`${o.titulo}, ${o.artista}`} aria-pressed={indiceDe(tipo) === i} onClick={() => elegirCancion(i)}>
+              <img src={o.url} alt="" loading="lazy" />
+            </button>
+          ))}
+        </div>
+      )}
       <div className="edtar-ajustes">
         <div className="edtar-grupo" role="group" aria-label="Formato">
           {FORMATOS.map((f) => (
@@ -142,11 +180,11 @@ export default function EditorTarjeta({ tarjetas, datos, urls, inicial, onCerrar
       </div>
       <div className="edtar-pie">
         <p className="edtar-aviso" role="status">{aviso}</p>
-        <button className="res-boton" onClick={guardar} disabled={trabajando || !listo}>
+        <button className="res-boton" onClick={guardar} disabled={trabajando || !listo || !tipo}>
           <IconoM nombre="descargar" tamano={20} />
           <span>Guardar en la galería</span>
         </button>
-        <button className="res-boton principal" onClick={compartir} disabled={trabajando || !listo}>
+        <button className="res-boton principal" onClick={compartir} disabled={trabajando || !listo || !tipo}>
           <IconoM nombre="compartir" tamano={20} />
           <span>{trabajando ? 'Preparando imagen…' : 'Compartir'}</span>
         </button>

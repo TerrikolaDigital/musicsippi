@@ -107,6 +107,10 @@ export function textoEstadoResolucion(estado, modoLocal = true) {
   switch (estado) {
     case 'buscando':
       return 'Buscando en YouTube…';
+    case 'preparando':
+      return 'Preparando la canción…';
+    case 'no_arranca':
+      return 'No se pudo poner en marcha la canción. Toca ▶ para reintentar.';
     case 'sin_api_key':
       return modoLocal
         ? 'Falta configurar tu clave de YouTube en Configuración.'

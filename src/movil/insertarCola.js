@@ -17,6 +17,13 @@ export function insertarDespues(cola, indice, pistas) {
   return { cola: [...cola.slice(0, pos), ...nuevas, ...cola.slice(pos)], indice };
 }
 
+/** Mete `nuevas` en una cola en aleatorio: lo ya sonado y la actual no se tocan; lo que viene detrás se baraja con ellas. */
+export function barajarConNuevas(cola, indice, nuevas, barajar) {
+  if (!nuevas?.length) return cola;
+  const pos = Math.max(indice, -1) + 1;
+  return [...cola.slice(0, pos), ...barajar([...cola.slice(pos), ...nuevas])];
+}
+
 /** Añade TODAS las pistas al final conservando el orden. Sin cola, empieza a sonar la lista. */
 export function agregarAlFinal(cola, indice, pistas) {
   const nuevas = pistas ?? [];

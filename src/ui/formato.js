@@ -55,6 +55,18 @@ export function colorDeEje(eje) {
   return `hsl(${hash % 360}, 55%, 42%)`;
 }
 
+/**
+ * Color de «Sonando desde» (`ejeActivo` en App.jsx). Solo un modo tiene color:
+ * una radio, una lista, un álbum o una búsqueda llegan como `{ nombre }` sin id
+ * (ver cargarCola) y devuelven null. La radio de un modo toma el de su modo.
+ */
+export function colorDeOrigen(origen) {
+  if (!origen) return null;
+  if (origen.id || origen.color) return colorDeEje(origen);
+  if (origen.radioDe) return colorDeEje({ id: origen.radioDe });
+  return null;
+}
+
 export function reloj(segundos) {
   if (!segundos || !isFinite(segundos)) return '0:00';
   const s = Math.floor(segundos % 60);

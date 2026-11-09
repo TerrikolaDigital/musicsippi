@@ -21,7 +21,10 @@ export function entradaArtista(nombre) {
 /** Añade la marca (con `fecha`) si no estaba; devuelve una lista nueva. */
 export function agregarMarca(marcas, entrada, ahora = Date.now()) {
   if ((marcas ?? []).some((m) => m.tipo === entrada.tipo && m.clave === entrada.clave)) return marcas;
-  return [...(marcas ?? []), { tipo: entrada.tipo, clave: entrada.clave, etiqueta: entrada.etiqueta, fecha: ahora }];
+  const { tipo, clave, etiqueta, origen, artista, trackId, eraFavorita } = entrada;
+  const extra = { origen, artista, trackId, eraFavorita };
+  for (const k of Object.keys(extra)) if (extra[k] === undefined) delete extra[k];
+  return [...(marcas ?? []), { tipo, clave, etiqueta, fecha: ahora, ...extra }];
 }
 
 export function quitarMarca(marcas, tipo, clave) {
@@ -61,4 +64,14 @@ export function filtrarNoMeGusta(lista, marcas) {
 export function coincideEntrada(track, entrada) {
   if (!track || !entrada) return false;
   return descarta(track, indices([entrada]));
+}
+
+/**
+ * `lista` sin lo marcado, para empezar a reproducir un modo o una secuencia. La canción por la que
+ * se arranca (`trackInicial`) se conserva aunque esté marcada: es una orden explícita del usuario.
+ */
+export function reproduciblesSinMarcas(lista, marcas, trackInicial = null) {
+  if (!Array.isArray(marcas) || !marcas.length || !lista?.length) return lista;
+  const ind = indices(marcas);
+  return lista.filter((x) => x === trackInicial || !descarta(x, ind));
 }

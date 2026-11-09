@@ -21,7 +21,7 @@ export default function CarruselPortadas({ ctx, titulo, etiqueta, canciones }) {
             onClick={() => ctx.reproducirLista(t, canciones, etiqueta)}
           >
             <span className="inicio-olvidada-img">
-              <PortadaImg src={portadaDe(ctx, t)} texto={t.titulo ?? ''} loading="lazy" />
+              <PortadaImg src={portadaDe(ctx, t)} texto={t.titulo ?? ''} loading="lazy" tam={250} />
               <span className="inicio-olvidada-play" aria-hidden="true">
                 <IconoM nombre="play" tamano={20} />
               </span>

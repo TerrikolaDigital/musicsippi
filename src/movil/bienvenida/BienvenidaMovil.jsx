@@ -36,6 +36,12 @@ export default function BienvenidaMovil({ ctx, nav, paso: pasoCapa }) {
   const siguiente = () => paso < PASOS && nav.abrirCapa({ tipo: 'bienvenida', paso: paso + 1 });
   const anterior = () => paso > 1 && nav.atras();
 
+  // Igual que explorar: cierra la bienvenida y, ya asentado el historial, abre Ajustes › Copia de seguridad.
+  const restaurar = () => {
+    window.addEventListener('popstate', () => nav.abrir({ tipo: 'config-copia' }), { once: true });
+    nav.cerrarCapaTipo('bienvenida', paso);
+  };
+
   const hayLocales = esAndroid() && !!ctx.importacion?.importarArchivosLocales;
   const abrirAnadir = (extra = {}) => nav.abrirCapa({ tipo: 'hoja', config: 'anadir', ...extra });
   // Cierra la bienvenida (retrocede sus entradas de historial) y, ya asentado el
@@ -125,6 +131,7 @@ export default function BienvenidaMovil({ ctx, nav, paso: pasoCapa }) {
         <div className="bienv-acciones">
           <Accion principal icono="modos" texto="Explorar música" onClick={explorar} />
           <Accion discreta icono="compartir" texto="Tengo una playlist" onClick={() => abrirAnadir()} />
+          <Accion discreta icono="disco" texto="¿Vienes de otro móvil? Restaurar copia" onClick={restaurar} />
           {hayLocales && <Accion discreta icono="disco" texto="Música de mi móvil" onClick={() => abrirAnadir({ locales: true })} />}
         </div>
       ),

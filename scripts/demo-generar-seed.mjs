@@ -28,7 +28,7 @@ import { normalizar } from './lib/clasificar.mjs';
 // clasificar.mjs / separarArtistasParaFusion en importar.mjs) — "ft." no es un
 // separador reconocido en NINGUNA de esas tres funciones a proposito (cada una
 // lo descarta con un comentario propio, verificado contra la biblioteca real de
-// En la biblioteca de prueba, 0 tracks reales usan "ft." en el campo artista, asi que no vale la
+// Medido: 0 tracks reales usan "ft." en el campo artista, asi que no vale la
 // pena tocar ese codigo de produccion ya probado por un caso que solo aparecia
 // acá, en datos escritos a mano). Sin " · ", "David Guetta ft. Sia" no
 // matcheaba como artista real en la pagina de Explorar/Deezer (ni foto, ni

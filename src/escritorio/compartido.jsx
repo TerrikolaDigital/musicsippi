@@ -4,12 +4,14 @@ import { useState, useEffect, useMemo } from 'react';
 import { MODO_LOCAL } from '../config/modo.js';
 import { Capacitor } from '@capacitor/core';
 import { traducirError } from '../../scripts/lib/traducir-error.mjs';
+import { colorearQr, opcionesQrMarca } from '../../scripts/lib/qr-marca.mjs';
 import { migrarHistorial, migrarUltimosModos } from '../data/sesion.js';
 import { enviarContacto } from '../data/contacto.js';
 import { camposDeMoodNuevo, modoVisible, FAMILIAS_NUEVO, familiaDe } from '../movil/modos.js';
 import { formatearTitulo, colorDeEje } from '../ui/formato.js';
 import ejesIniciales from '../../data/ejes.json';
 import biblioteca from '../../data/biblioteca.json';
+import { colaRestaurada, ejeSinIdRestaurado } from '../data/sesion-cola.js';
 
 
 // Separa un string de "artista" en los artistas individuales que lo
@@ -105,6 +107,13 @@ export function leerSesion() {
   }
 }
 
+let idsBiblioteca = null;
+/** ¿Se resuelve este id solo contra la biblioteca al restaurar? (si no, se guarda la canción entera) */
+export function idEnBiblioteca(id) {
+  if (!idsBiblioteca) idsBiblioteca = new Set(biblioteca.tracks.map((t) => t.id));
+  return idsBiblioteca.has(id);
+}
+
 export function guardarSesion(datos) {
   try {
     localStorage.setItem(CLAVE_SESION, JSON.stringify(datos));
@@ -120,15 +129,13 @@ export function restaurarSesion() {
   const s = leerSesion();
   if (!s) return null;
   const porId = new Map(biblioteca.tracks.map((t) => [t.id, t]));
-  const cola = s.colaIds.map((id) => porId.get(id)).filter(Boolean);
+  const cola = colaRestaurada(s, porId);
   if (cola.length === 0) return null;
 
   const indiceHallado = cola.findIndex((t) => t.id === s.trackActualId);
   const ejeActivo = s.ejeActivoId
     ? (ejesIniciales.ejes.find((e) => e.id === s.ejeActivoId) ?? { nombre: s.ejeActivoNombre ?? '' })
-    : s.ejeActivoNombre
-      ? { nombre: s.ejeActivoNombre }
-      : null;
+    : ejeSinIdRestaurado(s);
   const ejeVista = s.ejeVistaId ? (ejesIniciales.ejes.find((e) => e.id === s.ejeVistaId) ?? null) : null;
 
   return {
@@ -479,7 +486,7 @@ export function AcercaDe() {
       <div className="acerca-de-texto">
         <p className="acerca-nombre">Musicsippi</p>
         {/* En Android la versión real (1.N) la enseña «Versión instalada» debajo. */}
-        {!globalThis.Capacitor?.isNativePlatform?.() && <p className="ayuda">Versión 0.1.0</p>}
+        {!globalThis.Capacitor?.isNativePlatform?.() && <p className="ayuda">Versión 0.2.0</p>}
         <p className="ayuda">Hecho por @terrikoladigital</p>
         <p className="ayuda">
           Contacto: <a href="mailto:terrikoladigital@gmail.com">terrikoladigital@gmail.com</a>
@@ -612,8 +619,36 @@ export function Escribinos() {
  * Exporta lo que es dato del usuario (biblioteca, ejes, favoritos,
  * correcciones manuales, descartados) a un JSON descargable — no incluye
  * cache de portadas/fotos/videoIds, que se puede volver a pedir a las APIs.
- * Local primero (decisión de diseño), nube queda para más adelante.
+ * Local primero (confirmado con el usuario), nube queda para más adelante.
  */
+const URL_DESCARGA_ANDROID = 'https://github.com/TerrikolaDigital/musicsippi-android/releases/latest';
+
+// Enlace + QR a la página de descargas del APK. El QR se dibuja aquí mismo
+// (paquete `qrcode`, cargado solo cuando se abre esta pestaña): sin servicios externos.
+function DescargaAndroid() {
+  const [qr, setQr] = useState(null);
+  useEffect(() => {
+    let vivo = true;
+    import('qrcode')
+      .then((m) => m.toString(URL_DESCARGA_ANDROID, opcionesQrMarca(200)))
+      .then((svg) => vivo && setQr(`data:image/svg+xml;charset=utf-8,${encodeURIComponent(colorearQr(svg))}`))
+      .catch(() => {});
+    return () => {
+      vivo = false;
+    };
+  }, []);
+  return (
+    <section className="movil-qr-tarjeta descarga-android">
+      <h3 className="movil-qr-titulo">Descarga la app para Android</h3>
+      <p className="ayuda">Escanea el código con la cámara del móvil o abre el enlace: se descarga desde GitHub (archivo .apk).</p>
+      <div className="movil-qr-placa">{qr && <img src={qr} alt="Código QR para descargar Musicsippi para Android" width={200} height={200} />}</div>
+      <a className="ayuda-link" href={URL_DESCARGA_ANDROID} target="_blank" rel="noreferrer">
+        Abrir la página de descargas
+      </a>
+    </section>
+  );
+}
+
 // Pestaña "Móvil" de Configuración. En el escritorio muestra la dirección que
 // hay que escribir en el móvil; en la app Android, el formulario para traer la
 // biblioteca del PC por la WiFi (ver src/data/sincronizar-movil.js).
@@ -622,6 +657,24 @@ export function SincronizacionMovil({ recargarDatosLocales }) {
   const [direcciones, setDirecciones] = useState(null);
   const [direccion, setDireccion] = useState('');
   const [estado, setEstado] = useState({ fase: 'inicial' }); // inicial | sincronizando | listo | error
+  const [ultimaSync, setUltimaSync] = useState(undefined); // undefined = consultando, null = nunca
+
+  // En el PC: cuándo bajó el móvil la biblioteca por última vez (se refresca solo mientras esta pestaña está abierta).
+  useEffect(() => {
+    if (enAndroid || MODO_LOCAL) return undefined;
+    let vivo = true;
+    const leer = () =>
+      fetch('/api/estado-sync-movil')
+        .then((r) => r.json())
+        .then((j) => vivo && setUltimaSync(j.ultima ?? null))
+        .catch(() => vivo && setUltimaSync((u) => (u === undefined ? null : u)));
+    leer();
+    const t = setInterval(leer, 5000);
+    return () => {
+      vivo = false;
+      clearInterval(t);
+    };
+  }, [enAndroid]);
 
   useEffect(() => {
     if (enAndroid) {
@@ -680,36 +733,50 @@ export function SincronizacionMovil({ recargarDatosLocales }) {
   }
 
   if (MODO_LOCAL) {
-    return <p className="ayuda">La sincronización con el PC está en la app de Android.</p>;
+    return (
+      <div className="sincronizacion-movil">
+        <p className="ayuda">La sincronización con el PC está en la app de Android.</p>
+        <DescargaAndroid />
+      </div>
+    );
   }
 
+  // La WiFi de casa (192.168.x) primero: suele haber también adaptadores de VPN o de máquinas virtuales.
+  // El QR va solo para la primera; las demás se muestran como texto por si hiciera falta escribirlas.
+  const ordenadas = direcciones && [...direcciones].sort((a, b) => Number(b.startsWith('192.168.')) - Number(a.startsWith('192.168.')));
   return (
     <div className="sincronizacion-movil">
-      <p className="ayuda">
-        Para llevar tu biblioteca a la app de Android: con esta ventana abierta y el móvil en la misma WiFi,
-        escanea el código con la cámara del móvil. Se abre Musicsippi y se sincroniza sola. (También puedes
-        escribir la dirección en el móvil, en Configuración → Móvil.)
-      </p>
-      {direcciones === null && <p className="ayuda">Buscando la dirección…</p>}
-      {direcciones?.length === 0 && <p className="aviso">Este PC no parece estar conectado a ninguna red.</p>}
-      {/* La WiFi de casa (192.168.x) primero: suele haber también adaptadores
-          de VPN o de máquinas virtuales. El QR va solo para la primera. */}
-      {direcciones &&
-        [...direcciones]
-          .sort((a, b) => Number(b.startsWith('192.168.')) - Number(a.startsWith('192.168.')))
-          .map((d, i) => (
-            <div key={d} className="sincronizacion-movil-qr">
-              {i === 0 && (
-                <img
-                  src={`/api/qr-movil?d=${encodeURIComponent(d)}`}
-                  alt={`Código QR para sincronizar con ${d}`}
-                  width={240}
-                  height={240}
-                />
-              )}
-              <p className="sincronizacion-movil-direccion">{d}</p>
-            </div>
+      {/* Dos tarjetas una al lado de la otra; se apilan solas cuando no caben (ver .movil-qrs). */}
+      <div className="movil-qrs">
+        <section className="movil-qr-tarjeta">
+          <h3 className="movil-qr-titulo">Sincroniza tu biblioteca</h3>
+          <p className="ayuda">
+            Con esta ventana abierta y el móvil en la misma WiFi, escanea el código con la cámara del móvil: se abre
+            Musicsippi y se sincroniza sola. También puedes escribir la dirección en el móvil, en Configuración → Móvil.
+          </p>
+          <div className="movil-qr-placa">
+            {ordenadas?.[0] && (
+              <img src={`/api/qr-movil?d=${encodeURIComponent(ordenadas[0])}`} alt={`Código QR para sincronizar con ${ordenadas[0]}`} width={200} height={200} />
+            )}
+            {direcciones === null && <span className="movil-qr-espera">Buscando la dirección…</span>}
+            {direcciones?.length === 0 && <span className="movil-qr-espera">Este PC no parece estar conectado a ninguna red.</span>}
+          </div>
+          {ordenadas?.map((d) => (
+            <p key={d} className="sincronizacion-movil-direccion">
+              {d}
+            </p>
           ))}
+          <p className="ayuda movil-qr-ultima">
+            Última sincronización:{' '}
+            {ultimaSync === undefined
+              ? 'consultando…'
+              : ultimaSync
+                ? new Date(ultimaSync).toLocaleString('es', { dateStyle: 'long', timeStyle: 'short' })
+                : 'todavía no se ha sincronizado desde este PC.'}
+          </p>
+        </section>
+        <DescargaAndroid />
+      </div>
     </div>
   );
 }

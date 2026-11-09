@@ -151,6 +151,7 @@ export function previewDe(r) {
     fuentes: ['youtube'],
     youtubeQuery: `${r.artistaSugerido} ${r.tituloSugerido}`,
     youtubeVideoId: r.videoId,
+    coverUrl: r.thumbnail ?? null,
     ejes: [],
   };
 }

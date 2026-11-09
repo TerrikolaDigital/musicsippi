@@ -5,6 +5,7 @@
 // Los géneros que Deezer no tiene como tal (Rock en español, House, Soundtracks, Instrumental)
 // salen de playlists editoriales: `search/playlist?q=` y luego `playlist/<id>/tracks`.
 import { norm } from './inicio/claves.js';
+import { fotoUtil } from './fotoUtil.js';
 
 /** charts: ids de género de Deezer (`chart/<id>/tracks|albums`). listas: búsquedas de playlists editoriales. */
 export const GENEROS_EXPLORAR = [
@@ -43,7 +44,7 @@ export function elegirListas(json, cuantas = LISTAS_POR_BUSQUEDA) {
 }
 
 const cover = (a) => a?.cover_medium ?? a?.cover_big ?? null;
-const foto = (a) => a?.picture_medium ?? a?.picture_big ?? null;
+const foto = (a) => fotoUtil(a?.picture_medium) ?? fotoUtil(a?.picture_big);
 
 /** Canción de Deezer con lo que hace falta de su álbum y artista (null si le falta algo). */
 export function leerCancion(t) {

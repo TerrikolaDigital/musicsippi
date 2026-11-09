@@ -28,7 +28,9 @@ import { obtenerRecomendaciones } from '../../data/catalogo.js';
 import ExplorarGenero from './ExplorarGenero.jsx';
 import '../explorar.css';
 import { formatearTitulo } from '../../ui/formato.js';
+import { esLaQueSuena } from '../cancionSonando.js';
 import EstadoVacio from '../EstadoVacio.jsx';
+import { fotoUtil } from '../fotoUtil.js';
 
 const CHIPS = [
   ['todo', 'Todo'],
@@ -142,7 +144,7 @@ function useResultadoExterno(ctx) {
     if (agregados[r.videoId] === 'agregando' || agregados[r.videoId] === 'ok') return false;
     setAgregados((s) => ({ ...s, [r.videoId]: 'agregando' }));
     try {
-      const json = await ctx.agregarExterno({ titulo: r.tituloSugerido, artista: r.artistaSugerido, videoId: r.videoId });
+      const json = await ctx.agregarExterno({ titulo: r.tituloSugerido, artista: r.artistaSugerido, videoId: r.videoId, coverUrl: r.thumbnail });
       setAgregados((s) => ({ ...s, [r.videoId]: json.yaExistia ? 'yaExistia' : 'ok' }));
       return true;
     } catch {
@@ -162,7 +164,7 @@ function FilaExterna({ r, ctx, estado, onEscuchar, onAgregar }) {
       <FilaCancion
         track={track}
         meta={{ coverUrl: r.thumbnail }}
-        activa={ctx.trackActual?.id === track.id}
+        activa={esLaQueSuena(ctx.trackActual, track)}
         pausada={!ctx.sonando}
         onTocar={() => onEscuchar(r)}
         onPlay={() => onEscuchar(r)}
@@ -213,7 +215,7 @@ function Recomendados({ ctx, nav }) {
           <FilaSimple
             key={a.nombre}
             redonda
-            foto={a.fotoUrl}
+            foto={fotoUtil(a.fotoUrl)}
             titulo={a.nombre}
             sub="Nuevo para ti"
             onAbrir={() => nav.abrir({ tipo: 'artista', nombre: a.nombre })}
@@ -452,7 +454,7 @@ export default function BuscarMovil({ ctx, nav }) {
                       key={t.id}
                       track={t}
                       meta={ctx.metadataDe(t.trackIdReal ?? t.id)}
-                      activa={ctx.trackActual?.id === t.id}
+                      activa={esLaQueSuena(ctx.trackActual, t)}
                       pausada={!ctx.sonando}
                       onTocar={() => tocarBiblioteca(t)}
                       onMas={() => nav.abrirCapa({ tipo: 'hoja', trackId: t.id })}
@@ -532,7 +534,7 @@ export default function BuscarMovil({ ctx, nav }) {
                   key={t.id}
                   track={t}
                   meta={ctx.metadataDe(t.trackIdReal ?? t.id)}
-                  activa={ctx.trackActual?.id === t.id}
+                  activa={esLaQueSuena(ctx.trackActual, t)}
                   pausada={!ctx.sonando}
                   onTocar={() => tocarBiblioteca(t)}
                   onMas={() => nav.abrirCapa({ tipo: 'hoja', trackId: t.id })}

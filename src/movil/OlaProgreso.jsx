@@ -11,10 +11,14 @@ const VARIANTES = {
   grande: { W: 349, H: 32, y: 16, lo: 24, amp: 7, trazo: 3.6, recta: 3, durRecta: '', degradado: true },
   barra: { W: 340, H: 8, y: 5, lo: 14, amp: 2, trazo: 2.2, recta: 2, degradado: true },
   icono: { W: 18, H: 12, y: 6, lo: 9, amp: 3.5, trazo: 2, recta: 0, dur: '0.9s', degradado: false },
+  // Barra del reproductor de escritorio: el ancho real en px lo pasa el llamador
+  // (`ancho`, medido del contenedor) para que la onda no se estire.
+  escritorio: { W: 480, H: 22, y: 11, lo: 18, amp: 4.2, trazo: 3, recta: 2.4, degradado: true },
 };
 
-export default function OlaProgreso({ variante = 'grande', progreso = 0, pausado = false, children, className = '' }) {
-  const v = VARIANTES[variante] ?? VARIANTES.grande;
+export default function OlaProgreso({ variante = 'grande', progreso = 0, pausado = false, children, className = '', ancho }) {
+  const base = VARIANTES[variante] ?? VARIANTES.grande;
+  const v = ancho > 0 ? { ...base, W: Math.round(ancho) } : base;
   const uid = useId().replace(/:/g, '');
   const p = progresoValido(progreso);
   const icono = variante === 'icono';
@@ -57,9 +61,10 @@ export default function OlaProgreso({ variante = 'grande', progreso = 0, pausado
       </g>
     </svg>
   );
-  if (variante !== 'grande') return <span className={`ola-caja ola-caja-${variante} ${className}`.trim()}>{svg}</span>;
+  const conPerilla = variante === 'grande' || variante === 'escritorio';
+  if (!conPerilla) return <span className={`ola-caja ola-caja-${variante} ${className}`.trim()}>{svg}</span>;
   return (
-    <div className={`ola-caja ola-caja-grande ${className}`.trim()}>
+    <div className={`ola-caja ola-caja-${variante} ${className}`.trim()}>
       {svg}
       <span className="ola-perilla" style={{ left: `${p * 100}%` }} aria-hidden="true" />
       {children}

@@ -7,7 +7,7 @@ import { obtenerTodos, obtenerValorConfig, guardarValorConfig } from '../data/li
 import { contarSinModo } from './inicio.js';
 import { estadosAlimentables } from '../organizador/senales-estados.js';
 import { RETRASO_ORGANIZAR_AUTO_MS, tocaOrganizarSolo } from './organizarAuto.js';
-import { esSegundoPlano } from './avisos.js';
+import { esSegundoPlano, organizandoEnSegundoPlano } from './avisos.js';
 import { CLAVE_INTENTOS_REANUDAR, MAX_INTENTOS_REANUDAR } from '../organizador/sin-modo.js';
 
 const CLAVE_ULTIMA_AUTO = 'ultimaOrganizacionAuto';
@@ -16,13 +16,15 @@ const FASES_LIBRES = new Set(['inactivo', 'listo', 'error', 'esperando-wifi']);
 
 const RETRASO_REANUDAR_MS = 5000;
 
-export function useImportarOrganizar({ activo, setTracks, setEjes, refrescarMetadata }) {
+export function useImportarOrganizar({ activo, setTracks, setEjes, refrescarMetadata, refrescarFotosArtistas }) {
   const [organizacion, setOrganizacion] = useState({ fase: 'inactivo' });
   const organizador = useRef(null);
   // Petición hecha antes de que el módulo del organizador termine de cargar.
   const pendiente = useRef(null);
   const refrescar = useRef(refrescarMetadata);
   refrescar.current = refrescarMetadata;
+  const refrescarFotos = useRef(refrescarFotosArtistas);
+  refrescarFotos.current = refrescarFotosArtistas;
 
   // La última pasada la pidió el usuario (importar, «Usar datos», reintentar): solo esas pintan la barra.
   const manual = useRef(false);
@@ -48,6 +50,12 @@ export function useImportarOrganizar({ activo, setTracks, setEjes, refrescarMeta
       if (!vivo) return;
       organizador.current = org;
       quitar = org.suscribir(async (e) => {
+        if (e.fase === 'portadas-nuevas') {
+          // Portadas halladas en segundo plano: se recargan los datos, sin tocar la barra de organización.
+          refrescar.current?.();
+          refrescarFotos.current?.(); // las fotos de artista nuevas también entran por aquí
+          return;
+        }
         setOrganizacion(e);
         if (e.fase === 'aplicado' || e.fase === 'listo') {
           const [tracks, ejes] = await Promise.all([obtenerTodos('biblioteca'), obtenerTodos('ejes')]);
@@ -154,5 +162,6 @@ export function useImportarOrganizar({ activo, setTracks, setEjes, refrescarMeta
   const cerrarAviso = useCallback(() => setOrganizacion({ fase: 'inactivo' }), []);
 
   const enSegundoPlano = esSegundoPlano(organizacion, manual.current);
-  return { organizacion, enSegundoPlano, leerEnlace, importarLectura, importarArchivosLocales, revisarSeguidas, organizarConDatos, reintentarOrganizar, cerrarAviso };
+  const organizandoAhora = organizandoEnSegundoPlano(organizacion, manual.current);
+  return { organizacion, enSegundoPlano, organizandoAhora, leerEnlace, importarLectura, importarArchivosLocales, revisarSeguidas, organizarConDatos, reintentarOrganizar, cerrarAviso };
 }

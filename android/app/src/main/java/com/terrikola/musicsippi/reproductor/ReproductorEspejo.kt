@@ -80,7 +80,9 @@ class ReproductorEspejo(looper: Looper) : SimpleBasePlayer(looper) {
         val indiceActual = items.size
         val meta = MediaMetadata.Builder()
             .setTitle(d.titulo)
+            .setDisplayTitle(d.titulo)
             .setArtist(d.artista)
+            .setSubtitle(d.artista)
             .apply {
                 if (!d.portadaUrl.isNullOrBlank()) setArtworkUri(Uri.parse(d.portadaUrl))
                 if (d.duracionMs > 0) setDurationMs(d.duracionMs)

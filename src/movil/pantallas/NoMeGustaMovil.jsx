@@ -4,7 +4,7 @@ import SubpantallaMovil from './SubpantallaMovil.jsx';
 import EstadoVacio from '../EstadoVacio.jsx';
 import { formatearTitulo } from '../../ui/formato.js';
 
-function Grupo({ titulo, marcas, onQuitar }) {
+function Grupo({ titulo, marcas, onQuitar, porSaltos = false }) {
   if (marcas.length === 0) return null;
   return (
     <>
@@ -14,6 +14,7 @@ function Grupo({ titulo, marcas, onQuitar }) {
           <div key={`${m.tipo}:${m.clave}`} className="nmg-fila">
             <span className="nmg-fila-txt">
               <b>{formatearTitulo(m.etiqueta ?? m.clave)}</b>
+              {porSaltos && <small>Por saltarla varias veces</small>}
             </span>
             <button aria-label={`Quitar ${formatearTitulo(m.etiqueta ?? m.clave)} de No me gusta`} onClick={() => onQuitar(m)}>
               Quitar
@@ -29,7 +30,8 @@ export default function NoMeGustaMovil({ ctx, nav }) {
   const marcas = ctx.noMeGusta ?? [];
   const porFecha = (a, b) => (b.fecha ?? 0) - (a.fecha ?? 0);
   const artistas = marcas.filter((m) => m.tipo === 'artista').sort(porFecha);
-  const canciones = marcas.filter((m) => m.tipo === 'cancion').sort(porFecha);
+  const canciones = marcas.filter((m) => m.tipo === 'cancion' && m.origen !== 'saltos').sort(porFecha);
+  const porSaltos = marcas.filter((m) => m.tipo === 'cancion' && m.origen === 'saltos').sort(porFecha);
   const quitar = (m) => ctx.quitarNoMeGusta(m.tipo, m.clave);
   return (
     <SubpantallaMovil titulo="No me gusta" nav={nav}>
@@ -41,6 +43,7 @@ export default function NoMeGustaMovil({ ctx, nav }) {
       )}
       <Grupo titulo="Artistas" marcas={artistas} onQuitar={quitar} />
       <Grupo titulo="Canciones" marcas={canciones} onQuitar={quitar} />
+      <Grupo titulo="Canciones saltadas" marcas={porSaltos} onQuitar={quitar} porSaltos />
     </SubpantallaMovil>
   );
 }

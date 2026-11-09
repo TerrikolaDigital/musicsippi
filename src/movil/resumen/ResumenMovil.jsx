@@ -3,13 +3,15 @@
 // avanza, a la izquierda retrocede y mantener pulsado pausa. Capa de navegación { tipo: 'resumen', periodo }.
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { IconoM } from '../iconos.jsx';
-import { PortadaImg } from '../PortadaGenerada.jsx';
+import PortadaGenerada from '../PortadaGenerada.jsx';
 import { colorTarjeta } from '../formato.js';
 import { formatearTitulo } from '../../ui/formato.js';
 import { armarPantallas, armarResumen, rangoResumen, textoMinutos, ventanaResumenAnual } from './resumen.js';
 import EditorTarjeta from './EditorTarjeta.jsx';
 import { armarDatosTarjeta, listarTarjetas } from './datosTarjetas.js';
 import { coloresBase, coloresHistorias } from './coloresHistorias.js';
+import { cargarSinCors, crearFuentes, primeraVerificada, verificarUrls } from './imagenesResumen.js';
+import { cargarImagen } from './tarjeta.js';
 
 const sinMovimiento = () => !!window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
 const SEGUNDOS_PANTALLA = 7;
@@ -32,12 +34,15 @@ function useContador(valor, ms = 1100) {
   return v;
 }
 
-const urlPortada = (ctx, track) => {
-  const u = track ? ctx.metadataDe(track.trackIdReal ?? track.id)?.coverUrl : null;
-  return typeof u === 'string' && u.startsWith('http') ? u : null;
-};
+/** Imagen que prueba la siguiente fuente si una falla al cargar; solo si ninguna sirve cae a la portada generada. */
+function ImgFuentes({ lista, texto }) {
+  const [i, setI] = useState(0);
+  const src = lista[i];
+  if (!src) return <PortadaGenerada texto={texto} />;
+  return <img src={src} alt="" onError={() => setI((x) => x + 1)} />;
+}
 
-function Minutos({ p, ctx, bucle }) {
+function Minutos({ p, ctx, bucle, res, imgs }) {
   const min = useContador(p.minutos);
   const [sonando, setSonando] = useState(false);
   const musica = bucle?.track;
@@ -52,6 +57,7 @@ function Minutos({ p, ctx, bucle }) {
       <p className="res-nota">
         {p.reproducciones} reproducciones de {p.distintas} {p.distintas === 1 ? 'canción distinta' : 'canciones distintas'}.
       </p>
+      <Collage tracks={res.tracksMinutos} imgs={imgs} />
       {musica && (
         <button
           className="res-musica"
@@ -69,12 +75,12 @@ function Minutos({ p, ctx, bucle }) {
   );
 }
 
-function Bucle({ p, ctx }) {
+function Bucle({ p, imgs }) {
   return (
     <>
       <p className="res-pre">Tu canción en bucle</p>
       <div className="res-portada-grande">
-        <PortadaImg src={urlPortada(ctx, p.track)} texto={p.titulo} />
+        <ImgFuentes key={imgs.portadas(p.track).join()} lista={imgs.portadas(p.track)} texto={p.titulo} />
       </div>
       <p className="res-titulo">{formatearTitulo(p.titulo)}</p>
       <p className="res-sub">{formatearTitulo(p.artista)}</p>
@@ -83,7 +89,7 @@ function Bucle({ p, ctx }) {
   );
 }
 
-function Artistas({ p, ctx }) {
+function Artistas({ p, imgs }) {
   return (
     <>
       <p className="res-pre">Tus artistas de cabecera</p>
@@ -91,7 +97,7 @@ function Artistas({ p, ctx }) {
         {p.artistas.map((a, i) => (
           <li key={a.nombre} style={{ '--i': i }}>
             <span className="res-foto">
-              <PortadaImg src={ctx.fotoDeArtista(a.nombre)} texto={a.nombre} />
+              <ImgFuentes key={imgs.fotos(a.nombre).join()} lista={imgs.fotos(a.nombre)} texto={a.nombre} />
             </span>
             <b>{formatearTitulo(a.nombre)}</b>
             <small>{a.n}×</small>
@@ -102,28 +108,59 @@ function Artistas({ p, ctx }) {
   );
 }
 
-function Modo({ p }) {
+/** Tira de portadas solapadas (hasta 5, sin repetir imagen). */
+/** Una portada de la tira: prueba las fuentes en orden y, si ninguna carga, no se dibuja (nunca imagen rota). */
+function Teja({ lista, i }) {
+  const [n, setN] = useState(0);
+  const src = lista[n];
+  if (!src) return null;
+  return <img src={src} alt="" style={{ '--i': i }} onError={() => setN((x) => x + 1)} />;
+}
+
+function Collage({ tracks, imgs, max = 5, grande = false }) {
+  const vistas = new Set();
+  const listas = [];
+  for (const t of tracks ?? []) {
+    const lista = imgs.portadas(t);
+    if (!lista.length || vistas.has(lista[0])) continue;
+    vistas.add(lista[0]);
+    listas.push(lista);
+    if (listas.length >= max) break;
+  }
+  if (!listas.length) return null;
+  return (
+    <div className={`res-collage${grande ? ' res-collage-grande' : ''}`} aria-hidden="true">
+      {listas.map((lista, i) => (
+        <Teja key={lista[0]} lista={lista} i={i} />
+      ))}
+    </div>
+  );
+}
+
+function Modo({ p, res, imgs }) {
   return (
     <>
       <p className="res-pre">{p.texto}</p>
       <p className="res-modo">{formatearTitulo(p.nombre)}</p>
       <p className="res-nota">Un {Math.round(p.fraccion * 100)} % de tu tiempo vivió aquí dentro.</p>
+      <Collage tracks={res.tracksModo} imgs={imgs} />
     </>
   );
 }
 
-function Hora({ p }) {
+function Hora({ p, res, imgs }) {
   return (
     <>
       <p className="res-pre">Tu hora del día</p>
       <p className="res-hora">{p.frase}</p>
       <p className="res-nota">{p.nota}</p>
+      <Collage tracks={res.tracksHora} imgs={imgs} max={3} grande />
       {p.racha > 1 && <p className="res-chip">Tu mejor racha: {p.racha} días seguidos</p>}
     </>
   );
 }
 
-function Curioso({ p, ctx }) {
+function Curioso({ p, imgs, res }) {
   const d = p.descubrimiento;
   return (
     <>
@@ -132,7 +169,7 @@ function Curioso({ p, ctx }) {
           <p className="res-pre">Tu descubrimiento</p>
           <div className="res-descubre">
             <span className="res-portada-peque">
-              <PortadaImg src={urlPortada(ctx, d.track)} texto={d.titulo} />
+              <ImgFuentes key={imgs.portadas(d.track).join()} lista={imgs.portadas(d.track)} texto={d.titulo} />
             </span>
             <span>
               <b>{formatearTitulo(d.titulo)}</b>
@@ -144,12 +181,13 @@ function Curioso({ p, ctx }) {
           </p>
         </>
       )}
+      {d && <Collage tracks={res.tracksNuevas} imgs={imgs} max={4} />}
       {p.comparativa && <p className={d ? 'res-curioso' : 'res-titulo'}>{p.comparativa}</p>}
     </>
   );
 }
 
-function Final({ res, tipo, etiqueta, datos, onCompartir, onCerrar, ctx }) {
+function Final({ res, tipo, etiqueta, datos, onCerrar, imgs }) {
   const bucle = res.bucle;
   return (
     <>
@@ -157,7 +195,7 @@ function Final({ res, tipo, etiqueta, datos, onCompartir, onCerrar, ctx }) {
         <small>{tipo === 'anio' ? 'Tu año en Musicsippi' : 'Tu semana en Musicsippi'}{etiqueta ? ` · ${etiqueta}` : ''}</small>
         <div className="res-tarjeta-cab">
           <span className="res-portada-peque">
-            <PortadaImg src={urlPortada(ctx, bucle?.track)} texto={bucle?.titulo ?? 'M'} />
+            {bucle ? <ImgFuentes key={imgs.portadas(bucle.track).join()} lista={imgs.portadas(bucle.track)} texto={bucle.titulo} /> : <img src="/musicsippi-app-icon-256.png" alt="" />}
           </span>
           <span>
             <b>{datos.minutos}</b>
@@ -169,10 +207,6 @@ function Final({ res, tipo, etiqueta, datos, onCompartir, onCerrar, ctx }) {
         {datos.modo && <p>Mood: {formatearTitulo(datos.modo)}</p>}
       </div>
       <div className="res-acciones" data-no-avanzar>
-        <button className="res-boton principal" onClick={onCompartir}>
-          <IconoM nombre="compartir" tamano={20} />
-          <span>Compartir</span>
-        </button>
         <button className="res-boton" onClick={onCerrar}>
           <span>Cerrar</span>
         </button>
@@ -195,10 +229,59 @@ export default function ResumenMovil({ ctx, nav, periodo = 'semana' }) {
     return (id) => m.get(id) ?? null;
   }, [ctx.tracks, ctx.metadataDe]);
 
-  const res = useMemo(() => {
+  // Imágenes: cada canción y artista tiene una lista de fuentes (su portada, la de la misma canción, la foto
+  // de cada artista de un dúo, portadas de sus canciones). Se comprueba cuáles cargan de verdad ANTES de
+  // dibujar la historia y se usa la primera que carga: nunca iniciales.
+  // `ctx.fotoDeArtista` cambia en cada render de la app: se lee por ref para que las fuentes (y la comprobación) no se reinicien.
+  const fotoRef = useRef(ctx.fotoDeArtista);
+  fotoRef.current = ctx.fotoDeArtista;
+  const fuentes = useMemo(
+    () => crearFuentes({ tracks: ctx.tracks, metadataDe: ctx.metadataDe, fotoDeArtista: (n) => fotoRef.current(n), respaldoDe: (t) => ctx.metadataDe(t.trackIdReal ?? t.id)?.coverRespaldo ?? null }),
+    [ctx.tracks, ctx.metadataDe],
+  );
+  const [verif, setVerif] = useState(null); // { visibles, exportables|null }: urls que cargan en pantalla / también como canvas (CORS); null = comprobando
+  const verificadas = verif;
+  const armar = (portadaDe, fotoDe, maxAlternativas) => {
     const { desde, hasta } = rangoResumen(tipo);
-    return armarResumen(ctx.historial, ctx.tracks, { desde, hasta, ejes: ctx.ejes, duracionDe, metadataDe: ctx.metadataDe });
-  }, [ctx.historial, ctx.tracks, ctx.ejes, ctx.metadataDe, duracionDe, tipo]);
+    return armarResumen(ctx.historial, ctx.tracks, { desde, hasta, ejes: ctx.ejes, duracionDe, metadataDe: ctx.metadataDe, portadaDe, fotoDe, maxAlternativas });
+  };
+  const previo = useMemo(
+    () => armar((t) => fuentes.portada(t)[0], (n) => fuentes.foto(n)[0], 12),
+    [ctx.historial, ctx.tracks, ctx.ejes, ctx.metadataDe, duracionDe, tipo, fuentes],
+  );
+  const porVerificar = useMemo(() => {
+    const canciones = [...previo.candidatasBucle, ...previo.descubrimientos, ...previo.topCanciones.slice(0, 5), ...previo.topAlbumes];
+    return [...canciones.flatMap((c) => fuentes.portada(c.track)), ...previo.topArtistas.slice(0, 5).flatMap((a) => fuentes.foto(a.nombre))];
+  }, [previo, fuentes]);
+  const claveUrls = porVerificar.join('|'); // solo se vuelve a comprobar si cambian de verdad las direcciones
+  useEffect(() => {
+    let vivo = true;
+    (async () => {
+      const visibles = await verificarUrls(porVerificar, cargarSinCors);
+      if (!vivo) return;
+      setVerif({ visibles, exportables: null }); // la historia ya se puede ver
+      const exportables = await verificarUrls([...visibles], cargarImagen); // y luego, cuáles sirven también para compartir
+      if (vivo) setVerif({ visibles, exportables });
+    })();
+    return () => {
+      vivo = false;
+    };
+  }, [claveUrls]);
+  const imgs = useMemo(
+    () => ({
+      portada: (t) => primeraVerificada(fuentes.portada(t), verif?.visibles ?? null),
+      foto: (n) => primeraVerificada(fuentes.foto(n), verif?.visibles ?? null),
+      portadas: (t) => fuentes.portada(t).filter((u) => verif?.visibles?.has(u)),
+      fotos: (n) => fuentes.foto(n).filter((u) => verif?.visibles?.has(u)),
+    }),
+    [fuentes, verif],
+  );
+  // Para las tarjetas que se comparten (canvas): solo imágenes que también se pueden exportar.
+  const imgsTarjeta = useMemo(
+    () => ({ portada: (t) => primeraVerificada(fuentes.portada(t), verif?.exportables ?? null), foto: (n) => primeraVerificada(fuentes.foto(n), verif?.exportables ?? null) }),
+    [fuentes, verif],
+  );
+  const res = useMemo(() => (verif ? armar(imgs.portada, imgs.foto) : previo), [verif, imgs, previo]);
   const pantallas = useMemo(() => armarPantallas(res, tipo), [res, tipo]);
 
   const etiqueta = tipo === 'anio' ? (ventanaResumenAnual().completo ? 'Edición completa' : 'hasta hoy') : null;
@@ -266,8 +349,8 @@ export default function ResumenMovil({ ctx, nav, periodo = 'semana' }) {
 
   // Datos y direcciones de imagen de las tarjetas para compartir (se calculan una vez por resumen).
   const tarjeta = useMemo(
-    () => armarDatosTarjeta(res, tipo, color, { portada: (t) => urlPortada(ctx, t), foto: (n) => ctx.fotoDeArtista(n) }),
-    [res, tipo, color, ctx.metadataDe, ctx.fotoDeArtista],
+    () => armarDatosTarjeta(res, tipo, color, { portada: imgsTarjeta.portada, foto: imgsTarjeta.foto }),
+    [res, tipo, color, imgsTarjeta],
   );
   const [colores, setColores] = useState(() => coloresBase(color));
   useEffect(() => {
@@ -279,7 +362,7 @@ export default function ResumenMovil({ ctx, nav, periodo = 'semana' }) {
     };
   }, [tarjeta.urls, color]);
   const datosTarjeta = useMemo(() => ({ ...tarjeta.datos, colores }), [tarjeta.datos, colores]);
-  const tarjetas = useMemo(() => listarTarjetas(pantallas), [pantallas]);
+  const tarjetas = useMemo(() => listarTarjetas(pantallas, tarjeta.datos), [pantallas, tarjeta.datos]);
   const capaEditor = nav.capas.find((c) => c.tipo === 'editor-tarjeta');
   const abrirEditor = (inicial) => {
     setTarjetaInicial(inicial);
@@ -289,8 +372,11 @@ export default function ResumenMovil({ ctx, nav, periodo = 'semana' }) {
   const p = pantallas[i];
   const hayDatos = res.reproducciones > 0;
   const estilo = { '--res-c': (p && colores[p.id]) || color };
+  // Fondo difuminado con la imagen protagonista de cada pantalla (la canción en bucle por defecto).
+  const fondoUrl = !p || !verif ? null : p.id === 'artistas' ? imgs.foto(p.artistas[0]?.nombre ?? '') : p.id === 'curioso' ? imgs.portada(p.descubrimiento?.track) : imgs.portada(res.bucle?.track);
   return (
     <div className={`resumen${pausa || capaEditor ? ' en-pausa' : ''}`} style={estilo} role="dialog" aria-label={datos.titulo}>
+      {fondoUrl && <div className="res-fondo" key={fondoUrl} style={{ '--img': `url("${fondoUrl}")` }} aria-hidden="true" />}
       <div className="res-barras" aria-hidden="true">
         {pantallas.map((x, k) => (
           <span key={x.id} className="res-barra">
@@ -305,10 +391,10 @@ export default function ResumenMovil({ ctx, nav, periodo = 'semana' }) {
       <div className="res-cab">
         <span className="res-marca">
           <img className="res-logo" src="/musicsippi-app-icon-256.png" alt="" width="24" height="24" />
-          {datos.titulo}
+          <span className="res-marca-texto">{datos.titulo}</span>
           {etiqueta && <em className="res-etiqueta">{etiqueta}</em>}
         </span>
-        {hayDatos && p.id !== 'final' && (
+        {hayDatos && tarjetas.length > 0 && (
           <button className="res-compartir" data-no-avanzar onClick={() => abrirEditor(p.id)}>
             <IconoM nombre="compartir" tamano={18} />
             <span>Compartir</span>
@@ -319,21 +405,27 @@ export default function ResumenMovil({ ctx, nav, periodo = 'semana' }) {
         </button>
       </div>
       <div className="res-escena" onPointerDown={alPulsar} onPointerUp={alSoltar} onPointerCancel={alCancelar} onPointerLeave={alCancelar}>
-        {!hayDatos ? (
+        {!hayDatos || !verificadas ? (
           <div className="res-pantalla" key="vacio">
-            <p className="res-titulo">Todavía no hay resumen</p>
-            <p className="res-nota">Escucha un poco de música y vuelve: aquí te esperará tu historia.</p>
+            {hayDatos ? (
+              <p className="res-nota">Preparando tu resumen…</p>
+            ) : (
+              <>
+                <p className="res-titulo">Todavía no hay resumen</p>
+                <p className="res-nota">Escucha un poco de música y vuelve: aquí te esperará tu historia.</p>
+              </>
+            )}
           </div>
         ) : (
           <div className="res-pantalla" key={p.id}>
-            {p.id === 'minutos' && <Minutos p={p} ctx={ctx} bucle={res.bucle} />}
-            {p.id === 'bucle' && <Bucle p={p} ctx={ctx} />}
-            {p.id === 'artistas' && <Artistas p={p} ctx={ctx} />}
-            {p.id === 'modo' && <Modo p={p} />}
-            {p.id === 'hora' && <Hora p={p} />}
-            {p.id === 'curioso' && <Curioso p={p} ctx={ctx} />}
+            {p.id === 'minutos' && <Minutos p={p} ctx={ctx} bucle={res.bucle} res={res} imgs={imgs} />}
+            {p.id === 'bucle' && <Bucle p={p} imgs={imgs} />}
+            {p.id === 'artistas' && <Artistas p={p} imgs={imgs} />}
+            {p.id === 'modo' && <Modo p={p} res={res} imgs={imgs} />}
+            {p.id === 'hora' && <Hora p={p} res={res} imgs={imgs} />}
+            {p.id === 'curioso' && <Curioso p={p} imgs={imgs} res={res} />}
             {p.id === 'final' && (
-              <Final res={res} tipo={tipo} etiqueta={etiqueta} datos={datos} onCompartir={() => abrirEditor('final')} onCerrar={cerrar} ctx={ctx} />
+              <Final res={res} tipo={tipo} etiqueta={etiqueta} datos={datos} onCerrar={cerrar} imgs={imgs} />
             )}
           </div>
         )}

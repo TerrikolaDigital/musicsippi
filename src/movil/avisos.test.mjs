@@ -1,7 +1,7 @@
 // src/movil/avisos.test.mjs
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { avisoInfinito, avisoFavoritas, avisoModo, avisoRadio, pluralCanciones, textoProgreso, textoResumen, esSegundoPlano } from './avisos.js';
+import { avisoInfinito, avisoFavoritas, avisoModo, avisoRadio, pluralCanciones, textoProgreso, textoResumen, esSegundoPlano, organizandoEnSegundoPlano } from './avisos.js';
 
 test('pluralCanciones', () => {
   assert.equal(pluralCanciones(1), '1 canción');
@@ -60,4 +60,15 @@ test('esSegundoPlano: la pasada automática no pinta barra; la del usuario sí',
   assert.equal(esSegundoPlano({ fase: 'vectores', hechas: 80, total: 300 }, false), true);
   assert.equal(esSegundoPlano({ fase: 'generos', hechas: 1, total: 3 }, true), false);
   assert.equal(esSegundoPlano({ fase: 'inactivo' }, false), false);
+});
+
+test('organizandoEnSegundoPlano: solo gira mientras la pasada automática trabaja de verdad', () => {
+  assert.equal(organizandoEnSegundoPlano({ fase: 'vectores', hechas: 80, total: 300 }, false), true);
+  assert.equal(organizandoEnSegundoPlano({ fase: 'generos', hechas: 0, total: 0 }, false), true);
+  // Al acabar (o quedarse esperando) una pasada automática el estado se queda ahí: no debe seguir girando.
+  for (const fase of ['listo', 'error', 'esperando-wifi', 'inactivo']) {
+    assert.equal(organizandoEnSegundoPlano({ fase }, false), false, fase);
+  }
+  // La pasada pedida por el usuario se ve en la barra, no en la cabecera.
+  assert.equal(organizandoEnSegundoPlano({ fase: 'vectores' }, true), false);
 });

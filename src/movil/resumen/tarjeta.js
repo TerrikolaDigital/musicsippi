@@ -330,6 +330,15 @@ function foto(c, img, texto, cx, cy, r, color, aro = 'rgb(255 255 255 / 0.55)') 
   c.stroke();
 }
 
+/** Tira de portadas solapadas y ligeramente giradas, centrada en (cx, cy). */
+function tira(c, imgs, cx, cy, lado, color) {
+  const n = imgs.length;
+  if (!n) return;
+  const paso = lado * 0.74;
+  const x0 = cx - (lado + paso * (n - 1)) / 2 + lado / 2;
+  imgs.forEach((img, i) => caratula(c, img, '', x0 + i * paso, cy + (i % 2 ? 12 : -12), lado, (i % 2 ? 1 : -1) * 0.05, color));
+}
+
 function logoEn(c, logo, x, y, lado) {
   c.save();
   rectRedondo(c, x, y, lado, lado, lado * 0.24);
@@ -372,7 +381,10 @@ function tMinutos(c, W, H, cuad, d, im, t) {
   escribir(c, 'minutos de música', M, y, `700 ${78 * k}px ${DISPLAY}`);
   y += 76 * k;
   parrafo(c, `${d.reproducciones} reproducciones de ${d.distintas} ${plural(d.distintas, 'canción distinta', 'canciones distintas')}`, M, y, `500 ${38 * k}px ${TEXTO}`, a.w, 2, 52 * k, { a: 0.88 });
-  if (!cuad) {
+  const colMin = im.collage?.minutos ?? [];
+  if (!cuad && colMin.length) {
+    tira(c, colMin, W / 2, a.y1 - 150, 230, d.color);
+  } else if (!cuad) {
     // ecualizador decorativo, determinista
     const n = 26;
     const bw = a.w / n;
@@ -504,6 +516,7 @@ function tModo(c, W, H, cuad, d, im, t) {
     const px = ajustar(c, pct, DISPLAY, 700, 340 * t.g, a.w);
     escribir(c, pct, M - 6, y + px * 0.5, `700 ${px}px ${DISPLAY}`, { col: t.ac });
     parrafo(c, 'de mi tiempo vivió aquí dentro.', M, y + px * 0.5 + 80, `600 56px ${DISPLAY}`, a.w, 2, 66);
+    tira(c, im.collage?.modo ?? [], W / 2, a.y1 - 105, 190, d.color);
   } else {
     escribir(c, pre, M, a.y0 + 30, `600 40px ${DISPLAY}`, { a: 0.92 });
     tile(M + 290, a.y0 + 120 + 190, 560, 360, -0.07, 0.62);
@@ -564,12 +577,18 @@ function tHora(c, W, H, cuad, d, im, t) {
   const frase = o.frase.replace('Eres', 'Soy');
   if (!cuad) {
     escribir(c, 'Mi hora del día', M, a.y0 + 40, `600 58px ${DISPLAY}`, { a: 0.92 });
-    const r = 400;
+    const col = im.collage?.hora ?? [];
+    const r = col.length ? 290 : 400;
     const cx = W / 2;
     const cy = a.y0 + 140 + r;
     reloj(c, cx, cy, r, o.h, t);
     numeroConH(c, num, cx, cy, 460 * t.g, r * 1.3, 130, t);
-    const y = parrafo(c, frase, M, cy + r + 90, `700 62px ${DISPLAY}`, a.w, 2, 72);
+    let yT = cy + r + 90;
+    if (col.length) {
+      tira(c, col, W / 2, cy + r + 160, 250, d.color);
+      yT = cy + r + 160 + 125 + 70;
+    }
+    const y = parrafo(c, frase, M, yT, `700 62px ${DISPLAY}`, a.w, 2, 72);
     parrafo(c, o.nota, M, y + 18, `500 38px ${TEXTO}`, a.w, 2, 52, { a: 0.85 });
     if (o.racha > 1) pildora(c, `Mi mejor racha: ${o.racha} días seguidos`, M, a.y1 - 70, `600 36px ${TEXTO}`, { px: 26 });
   } else {
@@ -619,6 +638,7 @@ function tCurioso(c, W, H, cuad, d, im, t) {
     escribir(c, recortar(c, s.artista, a.w), M, y + 16, `500 46px ${TEXTO}`, { a: 0.9 });
     c.restore();
     escribir(c, `Y ya la puse ${s.n} ${plural(s.n, 'vez', 'veces')}.`, M, y + 82, `500 38px ${TEXTO}`, { a: 0.78 });
+    tira(c, im.collage?.curioso ?? [], W / 2, a.y0 + 1225, 160, d.color);
     if (cambio) {
       const px2 = ajustar(c, cambio.grande, DISPLAY, 700, 150, 420);
       escribir(c, cambio.grande, M - 4, a.y1 - 10, `700 ${px2}px ${DISPLAY}`, { col: t.ac });
@@ -852,15 +872,20 @@ export async function esperarFuentes() {
 export async function cargarImagenes(urls) {
   const base = typeof location !== 'undefined' ? location.origin : '';
   const todas = (lista) => Promise.all((lista ?? []).map((u) => cargarImagen(u)));
-  const [logo, bucle, descubre, artistas, canciones, albumes] = await Promise.all([
+  const [logo, bucle, descubre, artistas, canciones, albumes, candBucle, candCurioso] = await Promise.all([
     cargarImagen(`${base}/musicsippi-app-icon-256.png`),
     cargarImagen(urls.bucle),
     cargarImagen(urls.descubre),
     todas(urls.artistas),
     todas(urls.canciones),
     todas(urls.albumes),
+    todas(urls.candidatas?.bucle),
+    todas(urls.candidatas?.curioso),
   ]);
-  return { logo, bucle, descubre, artistas, canciones, albumes };
+  const claves = ['hora', 'modo', 'minutos', 'curioso'];
+  const cols = await Promise.all(claves.map((k) => todas(urls.collage?.[k])));
+  const collage = Object.fromEntries(claves.map((k, i) => [k, cols[i]]));
+  return { logo, bucle, descubre, artistas, canciones, albumes, candidatas: { bucle: candBucle, curioso: candCurioso }, collage };
 }
 
 /** PNG de la tarjeta a tamaño completo. */

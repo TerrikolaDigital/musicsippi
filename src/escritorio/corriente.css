@@ -1,0 +1,2748 @@
+/* src/escritorio/corriente.css — identidad v4 «La corriente» en el ESCRITORIO.
+   Maqueta aprobada: docs/maquetas/escritorio-v4-corriente.html (+ .md con las
+   decisiones) y DESIGN.md. Se importa desde AppEscritorio.jsx, así que viaja en el
+   chunk perezoso del escritorio: el móvil nunca lo descarga. Además todo va bajo
+   `.app-escritorio` (la raíz de AppEscritorio) para que nada se filtre al móvil
+   aunque las dos interfaces compartan styles.css. */
+
+/* =====================================================================
+   1 · TOKENS — los de :root de la maqueta (= movil.css .shell-movil, copiados
+   tal cual) más los ocho añadidos de escritorio. Al final se remapean los
+   tokens viejos de styles.css (--fondo, --panel, --acento, Poppins…) a los
+   nuevos: así las pantallas que no se rediseñan una por una (cola, historial,
+   fichas, menús) heredan el agua sin tocar sus reglas.
+   ===================================================================== */
+.app-escritorio {
+  color-scheme: dark;
+
+  /* Agua: cuatro profundidades. Más profundo = más oscuro y más azul. */
+  --agua-fondo: #0a0b16;
+  --agua-honda: #11132a;
+  --agua-media: #1a1c38;
+  --agua-alta: #25284c;
+  --linea: rgb(255 255 255 / 0.08);
+  --linea-fuerte: rgb(255 255 255 / 0.14);
+
+  /* Texto (AA sobre --agua-fondo y --agua-honda) */
+  --texto: #f4f1fb;
+  --tenue: #aaa7c6;
+  --tenue-mas: #8b88ad;
+
+  /* Marca */
+  --rosa: #ff4d8d;
+  --rosa-claro: #ff85b0;
+  --violeta: #7c5cff;
+  --violeta-claro: #a58bff;
+  --naranja: #ff8a3d;
+  --turquesa: #4cd9c6;
+
+  --sippi: linear-gradient(100deg, #ff4d8d 0%, #c64ff0 52%, #7c5cff 100%);
+  --sippi-calido: linear-gradient(100deg, #ff4d8d 0%, #ff8a3d 100%);
+  --sippi-texto: linear-gradient(95deg, #ff6b9f 0%, #d27cff 55%, #a58bff 100%);
+  --sippi-suave: linear-gradient(100deg, rgb(255 77 141 / 0.22), rgb(124 92 255 / 0.22));
+
+  /* Vidrio: solo lo que flota (barra del reproductor, menús) */
+  --vidrio: rgb(22 24 50 / 0.64);
+  --vidrio-denso: rgb(20 22 46 / 0.92);
+  --vidrio-borde: rgb(255 255 255 / 0.09);
+  --vidrio-blur: blur(22px) saturate(160%);
+
+  --luces: radial-gradient(120% 60% at 100% 0%, rgb(255 77 141 / 0.16), transparent 60%),
+           radial-gradient(90% 50% at 0% 22%, rgb(124 92 255 / 0.14), transparent 65%);
+  --grano: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.85' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 1 0 0 0 0 1 0 0 0 0 1 0 0 0 .6 0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+
+  /* Radios: jerarquía, no un único valor */
+  --r-portada-s: 8px;
+  --r-portada-l: 14px;
+  --r-control: 14px;
+  --r-tarjeta: 20px;
+  --r-hero: 26px;
+  --r-hoja: 30px;
+  --r-pill: 999px;
+
+  /* Sombras */
+  --sombra-1: 0 1px 0 rgb(255 255 255 / 0.05) inset, 0 6px 16px -8px rgb(0 0 0 / 0.6);
+  --sombra-2: 0 1px 0 rgb(255 255 255 / 0.07) inset, 0 18px 40px -14px rgb(0 0 0 / 0.75);
+  --sombra-flotante: 0 1px 0 rgb(255 255 255 / 0.08) inset, 0 0 0 1px var(--vidrio-borde), 0 22px 44px -16px rgb(0 0 0 / 0.85);
+  --brillo-sippi: 0 10px 34px -8px rgb(255 77 141 / 0.55), 0 6px 26px -10px rgb(124 92 255 / 0.6);
+  --sombra-color: 0 18px 34px -18px color-mix(in srgb, var(--c, #000) 85%, transparent);
+
+  /* Movimiento */
+  --ease-salida: cubic-bezier(0.23, 1, 0.32, 1);
+  --ease-cajon: cubic-bezier(0.32, 0.72, 0, 1);
+  --ease-mover: cubic-bezier(0.77, 0, 0.175, 1);
+  --dur-toque: 120ms;
+  --dur-corta: 180ms;
+  --dur-media: 260ms;
+  --dur-hoja: 480ms;
+  --dur-expandir: 440ms;
+  --dur-cerrar: 280ms;
+  --dur-corriente: 1.4s;
+
+  /* Tipografía */
+  --fuente-display: 'Fraunces', Georgia, serif;
+  --fuente-texto: 'Inter', system-ui, sans-serif;
+  --fraunces-blando: 'SOFT' 100, 'opsz' 72;
+
+  /* ---- Añadidos de escritorio ---- */
+  --orilla-ancho: 232px;
+  --titulo-alto: 36px; /* barra de título de Electron: igual que titleBarOverlay.height */
+  --lateral-ancho: 300px;
+  --margen: 32px;
+  --barra-alto: 84px;
+  --barra-hueco: 12px;
+  --r-barra: 22px;
+  --objetivo-min: 32px;
+  --hover: rgb(255 255 255 / 0.06);
+
+  /* ---- Tokens viejos de styles.css, remapeados al agua ---- */
+  --fondo: var(--agua-fondo);
+  --panel: var(--agua-honda);
+  --panel-alto: var(--agua-media);
+  --borde: var(--linea-fuerte);
+  --acento: var(--rosa);
+  --acento-claro: var(--rosa-claro);
+  --acento-morado: var(--violeta);
+  --acento-frio: var(--turquesa);
+  --funcional: var(--turquesa);
+  --peligro: #ff9a8a;
+  --gradiente-primario: var(--sippi);
+  --radio: var(--r-control);
+  --fuente-titulos: var(--fuente-display);
+}
+
+/* 1280 × 800: la orilla y la columna derecha ceden ancho, el centro no. */
+@media (max-width: 1360px) {
+  .app-escritorio {
+    --orilla-ancho: 216px;
+    --lateral-ancho: 272px;
+    --margen: 28px;
+  }
+}
+
+.app-escritorio {
+  font-family: var(--fuente-texto);
+  color: var(--texto);
+  -webkit-font-smoothing: antialiased;
+}
+
+.app-escritorio :is(h1, h2, h3, .titulo, .tarjeta-fila-nombre, .cola-titulo, .historial-subtitulo) {
+  font-variation-settings: var(--fraunces-blando);
+}
+
+.app-escritorio * {
+  scrollbar-color: var(--agua-alta) transparent;
+}
+
+.app-escritorio ::-webkit-scrollbar-thumb {
+  background: var(--agua-alta);
+  background-clip: content-box;
+}
+
+.app-escritorio :focus-visible {
+  outline: 2px solid var(--rosa-claro);
+  outline-offset: 3px;
+}
+
+/* =====================================================================
+   2 · DISPOSICIÓN: orilla | cauce. Scrollea solo el cauce (decisión 2 de la
+   aprobación del 2026-10-27: sustituye la regla de scroll único del body de
+   docs/superpowers/specs/2026-09-15-shell-scroll-unico-design.md).
+   ===================================================================== */
+html:has(.app-escritorio),
+html:has(.app-escritorio) body {
+  height: 100%;
+  overflow: hidden;
+  background: #0a0b16;
+}
+
+.app.app-escritorio {
+  position: relative;
+  isolation: isolate;
+  max-width: none;
+  height: 100vh;
+  margin: 0;
+  padding: 0;
+  overflow: hidden;
+  display: grid;
+  grid-template-columns: var(--orilla-ancho) minmax(0, 1fr);
+  grid-template-rows: minmax(0, 1fr);
+  background: var(--luces), var(--agua-fondo);
+  font-size: 14px;
+}
+
+/* Grano: ruido fractal al 5 %, encima de todo y sin capturar el ratón. */
+.app.app-escritorio::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: 60;
+  pointer-events: none;
+  background-image: var(--grano);
+  opacity: 0.05;
+  mix-blend-mode: overlay;
+}
+
+/* Electron oculta la barra de título nativa: esta franja (solo en la app de
+   escritorio, ver AppEscritorio) devuelve el arrastre de la ventana. */
+.app-escritorio .arrastre-ventana {
+  position: fixed;
+  top: 0;
+  left: var(--orilla-ancho);
+  right: 0;
+  height: var(--titulo-alto);
+  z-index: 40;
+  /* Mismo color que el overlay de los botones de ventana (electron/main.cjs):
+     la barra continúa sin corte hasta el borde derecho. */
+  background: var(--agua-fondo);
+  -webkit-app-region: drag;
+}
+
+/* ---------- Orilla: barra lateral ---------- */
+.app-escritorio .orilla {
+  grid-column: 1;
+  grid-row: 1;
+  position: relative;
+  z-index: 5;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 22px 14px calc(var(--barra-alto) + var(--barra-hueco) * 2 + 8px);
+  background: var(--agua-honda);
+  -webkit-app-region: drag;
+}
+
+.app-escritorio .orilla :is(button, input, label, a) {
+  -webkit-app-region: no-drag;
+}
+
+.app-escritorio .marca {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  align-self: flex-start;
+  min-height: 40px;
+  padding: 2px 8px;
+  margin-bottom: 14px;
+  border: 0;
+  border-radius: 12px;
+  background: none;
+  color: var(--texto);
+  cursor: pointer;
+  font: 700 26px/1 var(--fuente-display);
+  font-variation-settings: var(--fraunces-blando);
+  letter-spacing: -0.02em;
+}
+
+.app-escritorio .marca i {
+  font-style: italic;
+  font-weight: 600;
+  background: var(--sippi-texto);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  padding-right: 0.06em;
+}
+
+.app-escritorio .marca-insignia {
+  width: 30px;
+  height: 30px;
+  flex: none;
+  display: grid;
+  place-items: center;
+  border-radius: 10px;
+  background: var(--sippi);
+  color: #fff;
+  box-shadow: var(--brillo-sippi);
+}
+
+.app-escritorio .marca-insignia .ic {
+  stroke-width: 2.3;
+}
+
+/* Iconos de la v4: trazo 1.9 con currentColor. */
+.app-escritorio .ic {
+  flex: none;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.9;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.app-escritorio .ic.ic-relleno {
+  fill: currentColor;
+  stroke: none;
+}
+
+/* Campo hundido: sombra interior en vez de borde. */
+.app-escritorio .orilla-buscador {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 40px;
+  padding: 0 10px 0 12px;
+  margin: 0 0 14px;
+  border-radius: 12px;
+  background: var(--agua-fondo);
+  color: var(--tenue);
+  box-shadow: inset 0 2px 6px rgb(0 0 0 / 0.45), 0 0 0 1px var(--linea) inset;
+  cursor: text;
+}
+
+.app-escritorio .orilla-buscador:focus-within {
+  box-shadow: inset 0 2px 6px rgb(0 0 0 / 0.45), 0 0 0 2px var(--rosa-claro);
+}
+
+.app-escritorio .orilla-buscador input {
+  flex: 1;
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--texto);
+  font: 400 13.5px var(--fuente-texto);
+  outline: none;
+}
+
+.app-escritorio .orilla-buscador input::placeholder {
+  color: var(--tenue-mas);
+}
+
+.app-escritorio .orilla-buscador input::-webkit-search-cancel-button {
+  filter: invert(0.7);
+}
+
+.app-escritorio .orilla-buscador kbd {
+  padding: 2px 6px;
+  border-radius: 6px;
+  background: var(--agua-media);
+  color: var(--tenue-mas);
+  font: 500 11px var(--fuente-texto);
+  white-space: nowrap;
+}
+
+.app-escritorio .orilla-nav {
+  position: relative;
+  display: grid;
+  gap: 2px;
+}
+
+/* Indicador activo: el mismo --sippi-suave de la nav móvil; se desliza con
+   transform hasta el botón activo (posición en AppEscritorio). */
+.app-escritorio .orilla-ind {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 0;
+  height: 40px;
+  border-radius: 12px;
+  pointer-events: none;
+  opacity: 0;
+  background: var(--sippi-suave);
+  box-shadow: 0 0 0 1px rgb(255 133 176 / 0.2) inset, 0 8px 22px -12px rgb(255 77 141 / 0.6);
+  transition: transform var(--dur-media) var(--ease-mover), opacity var(--dur-corta) ease;
+}
+
+.app-escritorio .orilla-nav button {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  height: 40px;
+  padding: 0 12px;
+  border: 0;
+  border-radius: 12px;
+  background: none;
+  color: var(--tenue);
+  font: 500 14px var(--fuente-texto);
+  text-align: left;
+  cursor: pointer;
+  transition: background-color var(--dur-corta) ease, color var(--dur-corta) ease,
+    transform var(--dur-toque) var(--ease-salida);
+}
+
+.app-escritorio .orilla-nav button.activo {
+  color: var(--texto);
+  font-weight: 600;
+}
+
+.app-escritorio .orilla-nav button.activo .ic,
+.app-escritorio .orilla-nav button[data-destino='favoritas'] .ic {
+  color: var(--rosa-claro);
+}
+
+.app-escritorio .orilla-sep {
+  height: 18px;
+}
+
+/* ---------- Cauce: área de contenido ---------- */
+.app-escritorio .cauce {
+  grid-column: 2;
+  grid-row: 1;
+  position: relative;
+  min-width: 0;
+  min-height: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
+  overflow-anchor: none;
+  padding: calc(var(--titulo-alto) + 6px) var(--margen) calc(var(--barra-alto) + var(--barra-hueco) * 2 + 28px);
+  scrollbar-width: thin;
+}
+
+/* Lo que antes se pegaba bajo la cabecera ahora se pega al borde del cauce. */
+.app-escritorio {
+  --cabecera-alto-actual: 0px;
+}
+
+/* El aviso de «Organizando tu biblioteca» va arriba del cauce. */
+.app-escritorio .aviso-app-wide {
+  margin: 0 0 18px;
+  border-radius: var(--r-control);
+}
+
+/* ---------- Toque y hover (solo con ratón) ---------- */
+.app-escritorio :is(.orilla-nav button, .marca):active {
+  transform: scale(0.97);
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .app-escritorio .orilla-nav button:hover:not(.activo) {
+    background: var(--hover);
+    color: var(--texto);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .app-escritorio .orilla-ind {
+    transition-duration: 1ms;
+  }
+  .app-escritorio :is(.orilla-nav button, .marca):active {
+    transform: none;
+  }
+}
+
+/* =====================================================================
+   3 · BARRA DEL REPRODUCTOR: vidrio flotante a 12 px de los bordes, con el
+   tinte de la portada a la izquierda y la ola de progreso en el centro.
+   El vidrio va en ::before: backdrop-filter en la propia .barra la volvería el
+   bloque contenedor de los paneles `position: fixed` (cola, «⋮», ficha).
+   ===================================================================== */
+.app-escritorio .barra.barra-corriente {
+  position: fixed;
+  left: var(--barra-hueco);
+  right: var(--barra-hueco);
+  bottom: var(--barra-hueco);
+  z-index: 30;
+  height: var(--barra-alto);
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(400px, 600px) minmax(0, 1fr);
+  align-items: center;
+  gap: 20px;
+  padding: 0 14px 0 12px;
+  border: 0;
+  border-radius: var(--r-barra);
+  background: none;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+  isolation: isolate;
+  box-shadow: var(--sombra-flotante);
+}
+
+.app-escritorio .barra-corriente::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  border-radius: inherit;
+  background:
+    radial-gradient(40% 200% at 0% 50%, color-mix(in srgb, var(--tinte, var(--violeta)) 48%, transparent), transparent 75%),
+    var(--vidrio);
+  backdrop-filter: var(--vidrio-blur);
+  -webkit-backdrop-filter: var(--vidrio-blur);
+  pointer-events: none;
+}
+
+.app-escritorio .barra-corriente button,
+.app-escritorio .barra-corriente summary {
+  font-family: var(--fuente-texto);
+}
+
+/* Botones de la barra: círculos de 36 (saltos 40), sin borde. */
+.app-escritorio .barra-corriente .ctl {
+  width: 36px;
+  height: 36px;
+  min-width: 0;
+  flex: none;
+  display: inline-grid;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: none;
+  color: var(--tenue);
+  font-size: 15px;
+  line-height: 1;
+  cursor: pointer;
+  list-style: none;
+  transition: background-color var(--dur-corta) ease, color var(--dur-corta) ease,
+    transform var(--dur-toque) var(--ease-salida);
+}
+
+.app-escritorio .barra-corriente .ctl::-webkit-details-marker {
+  display: none;
+}
+
+.app-escritorio .barra-corriente .ctl.salto {
+  width: 40px;
+  height: 40px;
+  color: var(--texto);
+}
+
+.app-escritorio .barra-corriente .ctl.activo {
+  color: var(--rosa-claro);
+  border: 0;
+}
+
+.app-escritorio .barra-corriente .ctl:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+/* Izquierda */
+.app-escritorio .barra-izq {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+.app-escritorio .barra-corriente .barra-portada {
+  width: 60px;
+  height: 60px;
+  flex: none;
+  border-radius: 12px;
+  object-fit: cover;
+  font-size: 18px;
+  box-shadow: 0 10px 20px -8px color-mix(in srgb, var(--tinte, #000) 70%, black), 0 0 0 1px rgb(255 255 255 / 0.12) inset;
+}
+
+.app-escritorio .barra-corriente .barra-info-texto {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  line-height: 1.3;
+}
+
+.app-escritorio .barra-corriente .barra-titulo-cancion {
+  font: 600 15px/1.3 var(--fuente-texto);
+  color: var(--texto);
+}
+
+.app-escritorio .barra-corriente .barra-titulo-artista {
+  display: block;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--tenue);
+  font-size: 13px;
+}
+
+.app-escritorio .barra-corriente .barra-titulo-artista button,
+.app-escritorio .barra-corriente .barra-titulo-album {
+  display: inline;
+  max-width: none;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+  text-underline-offset: 3px;
+}
+
+.app-escritorio .barra-chip-modo {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 3px;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  color: color-mix(in srgb, var(--c-modo, var(--violeta)) 40%, white);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.app-escritorio .barra-chip-modo i {
+  width: 7px;
+  height: 7px;
+  flex: none;
+  border-radius: 50%;
+  background: currentColor;
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--c-modo, var(--violeta)) 30%, transparent);
+}
+
+.app-escritorio .barra-corriente .barra-megusta.activo {
+  color: var(--rosa);
+}
+
+.app-escritorio .barra-agregar {
+  display: flex;
+  flex: none;
+}
+
+/* Centro */
+.app-escritorio .barra-centro {
+  min-width: 0;
+  display: grid;
+  gap: 2px;
+}
+
+.app-escritorio .barra-corriente .barra-botones {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+}
+
+.app-escritorio .barra-corriente .barra-botones .principal {
+  width: 44px;
+  height: 44px;
+  min-width: 0;
+  margin: 0 6px;
+  padding: 0;
+  display: grid;
+  place-items: center;
+  border: 0;
+  border-radius: 50%;
+  background: #fff;
+  color: #14152b;
+  cursor: pointer;
+  box-shadow: 0 10px 22px -10px color-mix(in srgb, var(--tinte, #000) 90%, black);
+  transition: box-shadow var(--dur-corta) ease, transform var(--dur-toque) var(--ease-salida);
+}
+
+.app-escritorio .barra-corriente .barra-progreso {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  min-width: 0;
+}
+
+.app-escritorio .barra-corriente .barra-progreso .t {
+  width: 34px;
+  min-width: 0;
+  color: var(--tenue);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  text-align: left;
+}
+
+.app-escritorio .barra-corriente .barra-progreso .t:last-child {
+  text-align: right;
+}
+
+.app-escritorio .barra-ola {
+  flex: 1;
+  min-width: 0;
+}
+
+/* ---- Ola de progreso (OlaProgreso.jsx, variante «escritorio»). Las reglas
+   base viven en movil.css, que el escritorio no carga: se repiten acá. ---- */
+.app-escritorio .ola-caja {
+  display: block;
+  position: relative;
+}
+
+.app-escritorio .ola {
+  display: block;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+}
+
+.app-escritorio .ola-recta {
+  stroke: rgb(255 255 255 / 0.2);
+}
+
+.app-escritorio .ola-amp {
+  transform-box: fill-box;
+  transform-origin: center;
+  transition: transform 420ms var(--ease-mover);
+}
+
+.app-escritorio .ola.pausado .ola-amp {
+  transform: scaleY(0.08);
+}
+
+.app-escritorio .ola-mueve {
+  animation: ola-fluir-escritorio var(--dur-corriente) linear infinite;
+}
+
+.app-escritorio .ola.pausado .ola-mueve {
+  animation-play-state: paused;
+}
+
+@keyframes ola-fluir-escritorio {
+  to {
+    transform: translateX(calc(-1 * var(--lo, 18px)));
+  }
+}
+
+.app-escritorio .ola-caja-escritorio {
+  height: 22px;
+}
+
+.app-escritorio .ola-caja-escritorio .ola {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
+.app-escritorio .ola-perilla {
+  position: absolute;
+  top: 50%;
+  width: 13px;
+  height: 13px;
+  margin: -6.5px 0 0 -6.5px;
+  border-radius: 999px;
+  background: #fff;
+  box-shadow: 0 0 8px rgb(255 77 141 / 0.9);
+  pointer-events: none;
+}
+
+/* El slider accesible va encima de la ola, invisible pero usable (clic,
+   arrastre y teclado); el foco se ve como aro alrededor de la ola. */
+.app-escritorio .barra-corriente .ola-caja-escritorio > input[type="range"] {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  padding: 0;
+  opacity: 0;
+  cursor: pointer;
+  -webkit-appearance: none;
+  appearance: none;
+}
+
+.app-escritorio .barra-corriente .ola-caja-escritorio > input[type="range"]:disabled {
+  cursor: default;
+}
+
+.app-escritorio .ola-caja-escritorio:has(> input:focus-visible) {
+  outline: 2px solid var(--rosa-claro);
+  outline-offset: 4px;
+  border-radius: 8px;
+}
+
+/* Derecha */
+.app-escritorio .barra-corriente .barra-derecha {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 4px;
+}
+
+.app-escritorio .barra-corriente .barra-temporizador {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 32px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: 999px;
+  background: var(--agua-media);
+  color: var(--tenue);
+  font-size: 12.5px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.app-escritorio .barra-corriente .barra-volumen {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0 6px 0 4px;
+}
+
+/* Volumen: pista de 4 px con el relleno de marca hasta --vol. */
+.app-escritorio .barra-corriente .barra-volumen input[type="range"] {
+  width: 96px;
+  height: 16px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: none;
+  cursor: pointer;
+  -webkit-appearance: none;
+  appearance: none;
+}
+
+.app-escritorio .barra-corriente .barra-volumen input[type="range"]::-webkit-slider-runnable-track {
+  height: 4px;
+  border-radius: 2px;
+  background:
+    linear-gradient(90deg, #ff85b0, #c64ff0) 0 0 / var(--vol, 50%) 100% no-repeat,
+    rgb(255 255 255 / 0.18);
+}
+
+.app-escritorio .barra-corriente .barra-volumen input[type="range"]::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 12px;
+  height: 12px;
+  margin-top: -4px;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 0 0 3px rgb(255 255 255 / 0.12);
+  opacity: 0;
+  transition: opacity var(--dur-corta) ease;
+}
+
+.app-escritorio .barra-corriente .barra-volumen:hover input[type="range"]::-webkit-slider-thumb,
+.app-escritorio .barra-corriente .barra-volumen input[type="range"]:focus-visible::-webkit-slider-thumb {
+  opacity: 1;
+}
+
+.app-escritorio .barra-mas-posicion {
+  margin: 4px 10px 6px;
+  color: var(--tenue-mas);
+  font-size: 12.5px;
+}
+
+/* ---------- Vidrio en lo que flota: menús y paneles ---------- */
+.app-escritorio :is(.barra-mas-panel, .barra-cola-panel, .tarjeta-fila-mas-panel, .menu-listas-panel, .selector-agrupar-panel) {
+  border: 0;
+  border-radius: 16px;
+  background: var(--vidrio-denso);
+  backdrop-filter: var(--vidrio-blur);
+  -webkit-backdrop-filter: var(--vidrio-blur);
+  box-shadow: var(--sombra-flotante);
+}
+
+.app-escritorio :is(.barra-mas-panel > button, .barra-mas-panel > a, .tarjeta-fila-mas-panel button) {
+  min-height: 36px;
+  border-radius: 10px;
+}
+
+/* ---------- 1280: la barra cede los lados, el centro con la ola no ---------- */
+@media (max-width: 1360px) {
+  .app-escritorio .barra.barra-corriente {
+    grid-template-columns: minmax(0, 1fr) minmax(360px, 480px) minmax(0, 1fr);
+    gap: 14px;
+  }
+  .app-escritorio .barra-corriente .barra-sep,
+  .app-escritorio .barra-corriente .barra-titulo-album {
+    display: none;
+  }
+  .app-escritorio .barra-corriente .barra-volumen input[type="range"] {
+    width: 72px;
+  }
+}
+
+@media (max-width: 1100px) {
+  .app-escritorio .barra-corriente .barra-volumen input[type="range"] {
+    display: none;
+  }
+}
+
+/* ---------- Toque, hover y movimiento reducido ---------- */
+.app-escritorio .barra-corriente :is(.ctl, .barra-temporizador, .principal):active {
+  transform: scale(0.92);
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .app-escritorio .barra-corriente .ctl:hover:not(:disabled) {
+    background: var(--hover);
+    color: var(--texto);
+  }
+  .app-escritorio .barra-corriente .barra-megusta.activo:hover {
+    color: var(--rosa);
+  }
+  .app-escritorio .barra-corriente .barra-botones .principal:hover {
+    opacity: 1;
+    color: #14152b;
+    box-shadow: 0 0 0 5px rgb(255 255 255 / 0.14), var(--brillo-sippi);
+  }
+  .app-escritorio .barra-corriente :is(.barra-titulo-artista button, .barra-titulo-album):hover {
+    color: var(--texto);
+    text-decoration: underline;
+  }
+  .app-escritorio .barra-corriente .barra-titulo-cancion:hover {
+    color: var(--rosa-claro);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .app-escritorio .ola-mueve {
+    animation: none;
+  }
+  .app-escritorio .ola-amp {
+    transition: none;
+  }
+  .app-escritorio .barra-corriente :is(.ctl, .barra-temporizador, .principal):active {
+    transform: none;
+    filter: brightness(1.15);
+  }
+}
+
+/* =====================================================================
+   4 · INICIO: saludo, accesos, «Seguí escuchando» en una fila, hero «Modo
+   del momento» con la corriente, listas y la columna «Por artistas».
+   ===================================================================== */
+.app-escritorio .titulo-pantalla,
+.app-escritorio .buscador > .eyebrow {
+  margin: 0;
+  color: var(--texto);
+  font: 650 44px/1.02 var(--fuente-display);
+  font-variation-settings: 'SOFT' 100, 'opsz' 96;
+  letter-spacing: -0.025em;
+  text-transform: none;
+}
+
+.app-escritorio .inicio-saludo p {
+  margin: 6px 0 0;
+  color: var(--tenue);
+  font-size: 14.5px;
+}
+
+.app-escritorio .modos-layout {
+  grid-template-columns: minmax(0, 1fr) var(--lateral-ancho);
+  gap: 28px;
+}
+
+.app-escritorio .modos section {
+  margin-top: 34px;
+}
+
+.app-escritorio .modos .inicio-rapido {
+  margin-top: 22px;
+}
+
+/* Títulos de sección: Fraunces 22 en vez de mayúsculas espaciadas. */
+.app-escritorio .modos h2 {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 14px;
+  margin: 0 0 14px;
+  color: var(--texto);
+  font: 600 22px/1.2 var(--fuente-display);
+  font-variation-settings: var(--fraunces-blando);
+  letter-spacing: -0.01em;
+  text-transform: none;
+}
+
+.app-escritorio .modos h2 small {
+  margin: 0;
+  opacity: 1;
+  color: var(--tenue-mas);
+  font: 400 13px var(--fuente-texto);
+}
+
+/* Acciones junto al título (Crear lista, Ver todas): enlaces discretos. */
+.app-escritorio .h2-accion {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 32px;
+  margin: 0;
+  padding: 0 10px;
+  border: 0;
+  border-radius: 10px;
+  background: none;
+  color: var(--tenue);
+  font: 500 13.5px var(--fuente-texto);
+  align-self: center;
+  transition: background-color var(--dur-corta) ease, color var(--dur-corta) ease;
+}
+
+.app-escritorio .h2-accion.h2-ver {
+  margin-left: auto;
+}
+
+/* ---------- Accesos rápidos ---------- */
+.app-escritorio .inicio-rapido-grid {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.app-escritorio .inicio-rapido-tile {
+  flex-direction: row;
+  align-items: center;
+  gap: 12px;
+  min-height: 64px;
+  padding: 10px 12px;
+  border: 0;
+  border-radius: 18px;
+  background: var(--agua-honda);
+  box-shadow: var(--sombra-1);
+  color: var(--texto);
+  text-align: left;
+  transition: background-color var(--dur-corta) ease, transform var(--dur-toque) var(--ease-salida);
+}
+
+.app-escritorio .acceso-ico {
+  width: 42px;
+  height: 42px;
+  flex: none;
+  display: grid;
+  place-items: center;
+  border-radius: 12px;
+  color: #fff;
+}
+
+.app-escritorio .acceso-fav {
+  background: var(--sippi-calido);
+  box-shadow: 0 8px 18px -8px rgb(255 77 141 / 0.8);
+}
+
+.app-escritorio .acceso-inf {
+  background: var(--sippi);
+  box-shadow: 0 8px 18px -8px rgb(124 92 255 / 0.8);
+}
+
+.app-escritorio .acceso-rec {
+  background: var(--agua-alta);
+  color: var(--texto);
+}
+
+.app-escritorio .acceso-exp {
+  background: linear-gradient(135deg, #1f6f8b, #4c3bb0);
+  box-shadow: 0 8px 18px -8px rgb(76 59 176 / 0.8);
+}
+
+.app-escritorio .acceso-txt {
+  min-width: 0;
+}
+
+.app-escritorio .acceso-txt b {
+  display: block;
+  font-size: 14.5px;
+  font-weight: 600;
+}
+
+.app-escritorio .acceso-txt small {
+  display: block;
+  overflow: hidden;
+  color: var(--tenue);
+  font-size: 12.5px;
+  font-weight: 400;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+/* ---------- Tarjetas de modo (TarjetaModo) ---------- */
+/* Una sola fila: las que no entran quedan en filas de abajo, fuera de la caja
+   recortada (row-gap grande + alto fijo). El padding deja ver la sombra. */
+.app-escritorio .fila-tarjetas {
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  grid-template-rows: auto;
+  grid-auto-rows: 112px;
+  column-gap: 14px;
+  row-gap: 80px;
+  height: auto;
+  max-height: calc(112px + 30px);
+  margin: -4px -4px -18px;
+  padding: 4px 4px 26px;
+  overflow: hidden;
+  align-items: stretch;
+}
+
+/* «Mis listas» muestra dos filas. */
+.app-escritorio .fila-tarjetas.fila-tarjetas-listas {
+  grid-template-rows: auto auto;
+  row-gap: 30px;
+  max-height: calc(112px * 2 + 30px + 30px);
+}
+
+.app-escritorio .fila-tarjetas-listas > * {
+  margin-bottom: 0;
+}
+
+.app-escritorio .fila-tarjetas.expandida {
+  grid-template-columns: repeat(auto-fill, minmax(190px, 1fr));
+  grid-template-rows: none;
+  grid-auto-rows: minmax(132px, auto);
+  row-gap: 16px;
+  column-gap: 16px;
+  max-height: none;
+  overflow: visible;
+}
+
+.app-escritorio .tarjeta-fila-contenedor {
+  min-width: 0;
+  height: 100%;
+  min-height: 112px;
+}
+
+.app-escritorio .tarjeta-fila {
+  position: relative;
+  display: block;
+  height: 100%;
+  min-height: 112px;
+  padding: 0;
+  overflow: hidden;
+  isolation: isolate;
+  border: 0;
+  border-radius: var(--r-tarjeta);
+  color: #fff;
+  background:
+    radial-gradient(110% 80% at 0% 0%, color-mix(in srgb, var(--c) 88%, white 12%) 0%, transparent 65%),
+    linear-gradient(155deg, var(--c) 10%, color-mix(in srgb, var(--c) 50%, var(--agua-fondo)) 100%);
+  box-shadow: var(--sombra-color), 0 1px 0 rgb(255 255 255 / 0.16) inset;
+}
+
+/* Corrientes grabadas: tres ondas al 13 % en la mitad de abajo. */
+.app-escritorio .tarjeta-fila::before {
+  content: '';
+  position: absolute;
+  inset: auto 0 0 0;
+  height: 60%;
+  z-index: -1;
+  opacity: 0.5;
+  pointer-events: none;
+  background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='60'%3E%3Cpath d='M0 20q15-8 30 0t30 0 30 0 30 0M0 34q15-8 30 0t30 0 30 0 30 0M0 48q15-8 30 0t30 0 30 0 30 0' fill='none' stroke='white' stroke-opacity='.13' stroke-width='1.4'/%3E%3C/svg%3E") repeat-x left bottom / 120px 60px;
+}
+
+.app-escritorio .tarjeta-fila-principal {
+  position: absolute;
+  inset: 0;
+  display: block;
+  padding: 16px;
+  border-radius: inherit;
+  color: #fff;
+  text-align: left;
+}
+
+.app-escritorio .tarjeta-fila-principal:focus-visible {
+  outline-offset: -3px;
+}
+
+.app-escritorio .tarjeta-fila-miniatura {
+  position: absolute;
+  right: -12px;
+  bottom: -14px;
+  z-index: -1;
+  width: 58px;
+  height: 58px;
+  border-radius: 10px;
+  transform: rotate(14deg);
+  box-shadow: -6px 10px 20px -6px rgb(0 0 0 / 0.55), 0 0 0 1px rgb(255 255 255 / 0.1) inset;
+  transition: transform var(--dur-media) var(--ease-salida);
+}
+
+.app-escritorio .tarjeta-fila-texto {
+  display: block;
+  max-width: 72%;
+}
+
+.app-escritorio .tarjeta-fila-nombre {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  white-space: normal;
+  color: #fff;
+  font: 650 19px/1.12 var(--fuente-display);
+  font-variation-settings: var(--fraunces-blando);
+  letter-spacing: -0.01em;
+  text-shadow: 0 1px 10px rgb(0 0 0 / 0.25);
+}
+
+.app-escritorio .tarjeta-fila-total {
+  display: block;
+  margin-top: 4px;
+  color: rgb(255 255 255 / 0.88);
+  font-size: 12.5px;
+}
+
+.app-escritorio .tarjeta-fila-artistas {
+  display: block;
+  margin-top: 4px;
+  color: rgb(255 255 255 / 0.8);
+  font-size: 12.5px;
+}
+
+/* ▶ blanco abajo a la derecha: aparece con hover o con foco de teclado. */
+.app-escritorio .tarjeta-fila-play {
+  position: absolute;
+  right: 10px;
+  bottom: 10px;
+  z-index: 1;
+  width: 36px;
+  height: 36px;
+  display: grid;
+  place-items: center;
+  border: 0;
+  border-radius: 50%;
+  background: #fff;
+  color: #14152b;
+  box-shadow: 0 8px 18px -6px rgb(0 0 0 / 0.6);
+  opacity: 0;
+  transform: translateY(4px);
+  transition: opacity var(--dur-corta) ease, transform var(--dur-corta) var(--ease-salida);
+}
+
+.app-escritorio .tarjeta-fila:focus-within .tarjeta-fila-play {
+  opacity: 1;
+  transform: none;
+}
+
+.app-escritorio .tarjeta-fila-mas {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  z-index: 1;
+}
+
+.app-escritorio .tarjeta-fila-mas summary {
+  width: 32px;
+  height: 32px;
+  color: rgb(255 255 255 / 0.8);
+}
+
+/* Vista «Ver todas» / Listas: tarjetas más altas y portada más grande. */
+.app-escritorio .expandida .tarjeta-fila-miniatura {
+  width: 84px;
+  height: 84px;
+}
+
+.app-escritorio .tarjeta-fila-grande .tarjeta-fila {
+  min-height: 150px;
+}
+
+.app-escritorio .tarjeta-fila-grande .tarjeta-fila-miniatura {
+  width: 90px;
+  height: 90px;
+}
+
+/* Favoritas, en Listas, ocupa dos columnas con el degradado cálido de marca. */
+.app-escritorio .tarjeta-fila-grande .es-favoritas {
+  grid-column: span 2;
+}
+
+.app-escritorio .es-favoritas .tarjeta-fila {
+  --c: #ff4d8d;
+  background:
+    radial-gradient(90% 120% at 100% 0%, rgb(255 138 61 / 0.55), transparent 60%),
+    linear-gradient(135deg, #ff4d8d, #b0285e 70%, #5a1c45);
+}
+
+.app-escritorio .tarjeta-fila-grande .es-favoritas .tarjeta-fila-principal {
+  padding: 22px;
+}
+
+.app-escritorio .tarjeta-fila-grande .es-favoritas .tarjeta-fila-nombre {
+  font-size: 30px;
+}
+
+/* ---------- Hero «Modo del momento» ---------- */
+.app-escritorio .hero-modo-seccion {
+  margin-bottom: 0;
+}
+
+.app-escritorio .hero-modo {
+  position: relative;
+  min-height: 188px;
+  padding: 22px 32px;
+  overflow: hidden;
+  isolation: isolate;
+  border: 0;
+  border-radius: var(--r-hero);
+  color: #fff;
+  background:
+    radial-gradient(120% 90% at 0% 0%, color-mix(in srgb, var(--c) 92%, white 8%) 0%, transparent 70%),
+    linear-gradient(160deg, var(--c) 0%, color-mix(in srgb, var(--c) 45%, var(--agua-fondo)) 100%);
+  box-shadow: var(--sombra-color), 0 1px 0 rgb(255 255 255 / 0.18) inset;
+}
+
+.app-escritorio .hero-modo-agua {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: -1;
+  width: 100%;
+  height: 110px;
+  pointer-events: none;
+}
+
+.app-escritorio .hero-modo-agua .banda {
+  animation: ola-fluir-escritorio linear infinite;
+}
+
+.app-escritorio .hero-modo-portadas {
+  position: absolute;
+  right: 36px;
+  top: 22px;
+  z-index: -1;
+  width: 170px;
+  height: 150px;
+}
+
+.app-escritorio .hero-modo-portadas > * {
+  position: absolute;
+  width: 112px;
+  height: 112px;
+  border-radius: 12px;
+  object-fit: cover;
+  box-shadow: 0 24px 36px -14px rgb(0 0 0 / 0.65), 0 0 0 1px rgb(255 255 255 / 0.12) inset;
+}
+
+.app-escritorio .hero-modo-portadas > :nth-child(1) {
+  right: 46px;
+  top: 18px;
+  transform: rotate(-7deg);
+  filter: brightness(0.8);
+}
+
+.app-escritorio .hero-modo-portadas > :nth-child(2) {
+  right: 0;
+  top: 0;
+  transform: rotate(9deg);
+}
+
+.app-escritorio .hero-modo-portada-vacia {
+  background: linear-gradient(150deg, color-mix(in srgb, var(--c) 70%, white 30%), color-mix(in srgb, var(--c) 60%, black));
+}
+
+.app-escritorio .hero-modo-rotulo {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  color: rgb(255 255 255 / 0.9);
+  font-size: 13.5px;
+  font-weight: 600;
+}
+
+.app-escritorio .hero-modo-punto {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 0 0 4px rgb(255 255 255 / 0.18);
+}
+
+.app-escritorio .hero-modo h2 {
+  max-width: 60%;
+  margin: 8px 0 4px;
+  color: #fff;
+  font: 640 46px/1 var(--fuente-display);
+  font-variation-settings: 'SOFT' 100, 'opsz' 144;
+  letter-spacing: -0.035em;
+  text-transform: none;
+  overflow-wrap: anywhere;
+}
+
+.app-escritorio .hero-modo-preview h2 {
+  font-size: 30px;
+  line-height: 1.05;
+}
+
+.app-escritorio .hero-modo-detalle {
+  max-width: 56%;
+  margin: 0;
+  color: rgb(255 255 255 / 0.88);
+  font-size: 14.5px;
+}
+
+.app-escritorio .hero-modo-botones {
+  position: relative;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 16px;
+}
+
+.app-escritorio .hero-modo-reproducir {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  height: 42px;
+  padding: 0 20px 0 14px;
+  border: 0;
+  border-radius: 999px;
+  background: #fff;
+  color: #14152b;
+  font: 650 15px var(--fuente-texto);
+  box-shadow: 0 12px 26px -10px rgb(0 0 0 / 0.6);
+  transition: box-shadow var(--dur-corta) ease, transform var(--dur-toque) var(--ease-salida);
+}
+
+.app-escritorio .hero-modo-ver {
+  display: inline-flex;
+  align-items: center;
+  height: 42px;
+  padding: 0 18px;
+  border: 0;
+  border-radius: 999px;
+  background: rgb(255 255 255 / 0.14);
+  box-shadow: 0 1px 0 rgb(255 255 255 / 0.16) inset;
+  color: #fff;
+  font: 600 14.5px var(--fuente-texto);
+  transition: background-color var(--dur-corta) ease, transform var(--dur-toque) var(--ease-salida);
+}
+
+/* ---------- Columna «Por artistas» ---------- */
+.app-escritorio .modos-lateral {
+  position: sticky;
+  top: 0;
+  padding: 20px 14px 14px;
+  border: 0;
+  border-radius: var(--r-tarjeta);
+  background: var(--agua-honda);
+  box-shadow: var(--sombra-1);
+}
+
+.app-escritorio .modos-lateral h2 {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  margin: 0 0 12px;
+  padding: 0 6px;
+  color: var(--texto);
+  font: 600 21px/1.2 var(--fuente-display);
+  font-variation-settings: var(--fraunces-blando);
+  letter-spacing: 0;
+  text-transform: none;
+}
+
+.app-escritorio .modos-lateral h2 .h2-accion {
+  margin-right: -10px;
+}
+
+.app-escritorio .modos-lateral h2 small {
+  order: 3;
+  flex-basis: 100%;
+  margin: 2px 0 0;
+  opacity: 1;
+  color: var(--tenue-mas);
+  font: 400 12.5px var(--fuente-texto);
+}
+
+.app-escritorio .lateral-lista {
+  gap: 2px;
+}
+
+.app-escritorio .lateral-item {
+  gap: 12px;
+  min-height: 54px;
+  padding: 6px 8px;
+  border-radius: 14px;
+  transition: background-color var(--dur-corta) ease;
+}
+
+.app-escritorio .modos-lateral .lateral-item-cover,
+.app-escritorio .modos-lateral .lateral-item-avatar {
+  width: 42px;
+  height: 42px;
+  border-radius: 50%;
+  box-shadow: 0 0 0 2px var(--agua-honda), 0 0 0 3px var(--linea-fuerte);
+  font: 600 17px var(--fuente-display);
+  font-variation-settings: var(--fraunces-blando);
+}
+
+.app-escritorio .lateral-item-nombre {
+  font-size: 14px;
+}
+
+.app-escritorio .lateral-item-total {
+  color: var(--tenue);
+  font-size: 12.5px;
+}
+
+/* Avisos de Inicio (canciones de ejemplo, modos nuevos): panel de agua. */
+.app-escritorio .banner-modos-nuevos {
+  border: 0;
+  border-radius: var(--r-control);
+  background: var(--agua-honda);
+  box-shadow: var(--sombra-1);
+}
+
+/* Ventanas angostas: la columna derecha baja debajo. */
+@media (max-width: 1100px) {
+  .app-escritorio .modos-layout {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .app-escritorio .modos-lateral {
+    position: static;
+  }
+  .app-escritorio .inicio-rapido-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 1360px) {
+  .app-escritorio .hero-modo-portadas {
+    right: 28px;
+    transform: scale(0.86);
+    transform-origin: 100% 0;
+  }
+}
+
+/* ---------- Toque, hover y movimiento reducido ---------- */
+.app-escritorio :is(.inicio-rapido-tile, .h2-accion, .hero-modo-ver, .hero-modo-reproducir, .lateral-item):active {
+  transform: scale(0.97);
+}
+
+.app-escritorio .tarjeta-fila-play:active {
+  transform: scale(0.92);
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .app-escritorio .inicio-rapido-tile:hover {
+    border: 0;
+    background: var(--agua-media);
+    color: var(--texto);
+  }
+  .app-escritorio .h2-accion:hover {
+    border: 0;
+    background: var(--hover);
+    color: var(--texto);
+  }
+  .app-escritorio .tarjeta-fila:hover .tarjeta-fila-play {
+    opacity: 1;
+    transform: none;
+    background: #fff;
+    color: #14152b;
+  }
+  .app-escritorio .tarjeta-fila-play:hover {
+    filter: none;
+    box-shadow: 0 0 0 4px rgb(255 255 255 / 0.18), var(--brillo-sippi);
+  }
+  .app-escritorio .tarjeta-fila:hover .tarjeta-fila-miniatura {
+    transform: rotate(10deg) translateY(-3px);
+  }
+  .app-escritorio .tarjeta-fila-mas summary:hover {
+    background: rgb(255 255 255 / 0.16);
+    color: #fff;
+  }
+  .app-escritorio .hero-modo-reproducir:hover {
+    opacity: 1;
+    box-shadow: 0 0 0 5px rgb(255 255 255 / 0.14), var(--brillo-sippi);
+  }
+  .app-escritorio .hero-modo-ver:hover {
+    border: 0;
+    background: rgb(255 255 255 / 0.22);
+    color: #fff;
+  }
+  .app-escritorio .lateral-item:hover {
+    background: var(--hover);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .app-escritorio .hero-modo-agua .banda {
+    animation: none;
+  }
+  .app-escritorio :is(.inicio-rapido-tile, .h2-accion, .hero-modo-ver, .hero-modo-reproducir, .lateral-item, .tarjeta-fila-play):active {
+    transform: none;
+    filter: brightness(1.15);
+  }
+  .app-escritorio .tarjeta-fila-play {
+    transition-property: opacity;
+    transform: none !important;
+  }
+  .app-escritorio .tarjeta-fila .tarjeta-fila-miniatura,
+  .app-escritorio .tarjeta-fila:hover .tarjeta-fila-miniatura {
+    transition: none;
+    transform: rotate(14deg);
+  }
+}
+
+/* =====================================================================
+   5 · BIBLIOTECA: Artistas, Álbumes, Listas, Explorar, Recientes y las vistas
+   hijas (álbum, artista, lista/cola). Título de pantalla en Fraunces 44,
+   filtros hundidos, chips de orden y rejillas de la maqueta.
+   ===================================================================== */
+.app-escritorio .buscador > .eyebrow {
+  margin: 0 0 22px;
+}
+
+/* Secciones dentro de pantallas (Explorar, artista, búsqueda). */
+.app-escritorio :is(.artista-seccion-titulo, .menu-listas-titulo.artista-seccion-titulo) {
+  margin: 34px 0 14px;
+  color: var(--texto);
+  font: 600 22px/1.2 var(--fuente-display);
+  font-variation-settings: var(--fraunces-blando);
+  letter-spacing: -0.01em;
+  text-transform: none;
+}
+
+/* Campos hundidos: sombra interior en vez de borde. */
+.app-escritorio :is(.buscador-input, .cola-filtro, .crear input, .escribinos-campo input, .escribinos-campo textarea, .sincronizacion-movil-form input, .ficha-edicion input, .reinicio-total-input) {
+  border: 0;
+  border-radius: 12px;
+  background: var(--agua-fondo);
+  color: var(--texto);
+  box-shadow: inset 0 2px 6px rgb(0 0 0 / 0.45), 0 0 0 1px var(--linea) inset;
+}
+
+.app-escritorio :is(.buscador-input, .cola-filtro, .crear input, .escribinos-campo input, .escribinos-campo textarea, .sincronizacion-movil-form input, .ficha-edicion input, .reinicio-total-input):focus {
+  outline: none;
+  box-shadow: inset 0 2px 6px rgb(0 0 0 / 0.45), 0 0 0 2px var(--rosa-claro);
+}
+
+.app-escritorio .buscador-input::placeholder {
+  color: var(--tenue-mas);
+}
+
+.app-escritorio .buscador-filtro-fila {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 24px;
+}
+
+.app-escritorio .buscador-filtro-fila .buscador-input {
+  flex: none;
+  width: 280px;
+  height: 40px;
+  padding: 0 14px;
+  font-size: 13.5px;
+}
+
+.app-escritorio .buscador-filtro-total {
+  margin: 0;
+  color: var(--tenue-mas);
+  font-size: 13px;
+}
+
+.app-escritorio .buscador-filtro-total-sola {
+  margin: 0 0 18px;
+}
+
+.app-escritorio .buscador-artistas-orden {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+/* Chips (orden, géneros): agua media; el activo, invertido. */
+.app-escritorio :is(.toggle-orden, .explorar-generos button) {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 34px;
+  padding: 0 14px;
+  border: 0;
+  border-radius: 999px;
+  background: var(--agua-media);
+  color: var(--tenue);
+  font: 500 13.5px var(--fuente-texto);
+  box-shadow: 0 0 0 1px var(--linea) inset;
+  cursor: pointer;
+  transition: background-color var(--dur-corta) ease, color var(--dur-corta) ease,
+    transform var(--dur-toque) var(--ease-salida);
+}
+
+.app-escritorio :is(.toggle-orden.activo, .explorar-generos button.activo) {
+  border: 0;
+  background: var(--texto);
+  color: #15162c;
+  font-weight: 600;
+  box-shadow: none;
+}
+
+.app-escritorio .explorar-generos {
+  gap: 8px;
+  padding-bottom: 8px;
+  border: 0;
+}
+
+/* ---------- Artistas: rejilla de círculos ---------- */
+.app-escritorio .grid-artistas {
+  grid-template-columns: repeat(auto-fill, minmax(136px, 1fr));
+  gap: 26px 20px;
+}
+
+.app-escritorio .tarjeta-artista {
+  gap: 0;
+  padding: 10px 8px 12px;
+  border-radius: 18px;
+  transition: background-color var(--dur-corta) ease, transform var(--dur-toque) var(--ease-salida);
+}
+
+.app-escritorio .tarjeta-artista-foto {
+  width: 100%;
+  max-width: none;
+  margin-bottom: 12px;
+  color: rgb(255 255 255 / 0.92);
+  font: 600 46px var(--fuente-display);
+  font-variation-settings: var(--fraunces-blando);
+  box-shadow: 0 0 0 3px var(--agua-fondo), 0 0 0 4px var(--linea-fuerte), 0 18px 30px -16px rgb(0 0 0 / 0.8);
+  transition: none;
+}
+
+.app-escritorio .tarjeta-artista-nombre {
+  max-width: 100%;
+  font-size: 14.5px;
+  font-weight: 600;
+}
+
+.app-escritorio .tarjeta-artista-total {
+  margin-top: 2px;
+  color: var(--tenue);
+  font-size: 12.5px;
+}
+
+/* ---------- Álbumes: rejilla de portadas ---------- */
+.app-escritorio .artista-albumes {
+  grid-template-columns: repeat(auto-fill, minmax(164px, 1fr));
+  gap: 26px 20px;
+}
+
+.app-escritorio .artista-album-tile {
+  min-width: 0;
+  padding: 10px;
+  border: 0;
+  border-radius: 18px;
+  background: none;
+  transition: background-color var(--dur-corta) ease;
+}
+
+.app-escritorio .artista-album-tile :is(img, .artista-album-tile-vacia) {
+  width: 100%;
+  height: auto;
+  aspect-ratio: 1;
+  margin-bottom: 12px;
+  border-radius: var(--r-portada-l);
+  object-fit: cover;
+  box-shadow: 0 0 0 1px rgb(255 255 255 / 0.08) inset, 0 18px 30px -16px rgb(0 0 0 / 0.85);
+}
+
+.app-escritorio .artista-album-tile-titulo {
+  color: var(--texto);
+  font-size: 14.5px;
+  font-weight: 600;
+}
+
+.app-escritorio .artista-album-tile-artista {
+  margin-top: 2px;
+  color: var(--tenue);
+  font-size: 12.5px;
+}
+
+/* Carrusel de álbumes en la ficha de artista: mismo tamaño de portada. */
+.app-escritorio .artista-albumes-carousel .artista-album-tile {
+  width: 184px;
+}
+
+/* ---------- Filas de canciones (listas, cola, historial, búsqueda) ---------- */
+.app-escritorio :is(.cola, .album-tracklist) {
+  border: 0;
+  border-radius: 0;
+  overflow: visible;
+}
+
+.app-escritorio :is(.cola li, .album-tracklist li) {
+  min-height: 56px;
+  border: 0;
+  border-radius: var(--r-control);
+  transition: background-color var(--dur-corta) ease;
+}
+
+.app-escritorio .cola li + li,
+.app-escritorio .album-tracklist li + li {
+  box-shadow: 0 -1px 0 var(--linea);
+}
+
+.app-escritorio :is(.cola li.actual, .album-tracklist li.actual) {
+  background: linear-gradient(90deg, rgb(255 77 141 / 0.12), transparent 70%);
+  box-shadow: none;
+}
+
+.app-escritorio .cola li.actual + li,
+.app-escritorio .album-tracklist li.actual + li {
+  box-shadow: none;
+}
+
+.app-escritorio :is(.cola li.actual .c-titulo, .album-tracklist li.actual .album-track-titulo) {
+  color: var(--rosa-claro);
+}
+
+.app-escritorio .c-portada {
+  border-radius: var(--r-portada-s);
+  box-shadow: var(--sombra-1);
+}
+
+.app-escritorio :is(.c-play, .c-acciones > button, .c-acciones > .c-arrastrar, .menu-listas summary, .barra-detalles summary, .album-track-acciones button) {
+  border: 0;
+  background: var(--agua-media);
+}
+
+.app-escritorio .c-play {
+  background: var(--agua-media);
+  color: var(--texto);
+}
+
+/* Resultados externos (Explorar / búsqueda «Para agregar»). */
+.app-escritorio .lista-externa {
+  border: 0;
+  gap: 2px;
+}
+
+.app-escritorio .lista-externa li {
+  min-height: 64px;
+  padding: 8px 10px;
+  border: 0;
+  border-radius: var(--r-control);
+  background: none;
+  transition: background-color var(--dur-corta) ease;
+}
+
+.app-escritorio .lista-externa img {
+  border-radius: var(--r-portada-s);
+  box-shadow: var(--sombra-1);
+}
+
+.app-escritorio .externa-escuchar {
+  width: 36px;
+  height: 36px;
+  border: 0;
+  border-radius: 50%;
+  background: var(--agua-media);
+  color: var(--texto);
+}
+
+.app-escritorio .externa-acciones > button {
+  min-height: 36px;
+  padding: 0 14px;
+  border: 0;
+  border-radius: 999px;
+  background: var(--agua-media);
+  color: var(--texto);
+  font-weight: 600;
+  font-size: 13px;
+  box-shadow: 0 0 0 1px var(--linea-fuerte) inset;
+}
+
+.app-escritorio .lista-externa .externa-ok,
+.app-escritorio .externa-estado:not(.externa-error) {
+  border-radius: 999px;
+  background: rgb(76 217 198 / 0.14);
+  color: var(--turquesa);
+}
+
+/* ---------- Vistas hijas: álbum, artista, lista ---------- */
+.app-escritorio .volver {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 32px;
+  padding: 0 10px;
+  margin: 0 0 8px -10px;
+  border-radius: 10px;
+  color: var(--tenue);
+  font: 500 13.5px var(--fuente-texto);
+  transition: background-color var(--dur-corta) ease, color var(--dur-corta) ease;
+}
+
+.app-escritorio .album {
+  max-width: none;
+}
+
+.app-escritorio .album-encabezado {
+  gap: 28px;
+  margin: 8px 0 28px;
+}
+
+.app-escritorio :is(.album-encabezado img, .album-cover-vacia) {
+  width: 184px;
+  height: 184px;
+  border-radius: var(--r-portada-l);
+  box-shadow: 0 24px 36px -14px rgb(0 0 0 / 0.65), 0 0 0 1px rgb(255 255 255 / 0.12) inset;
+}
+
+.app-escritorio :is(.album-encabezado img.artista-foto, .artista-foto-vacia) {
+  border-radius: 50%;
+  box-shadow: 0 0 0 3px var(--agua-fondo), 0 0 0 4px var(--linea-fuerte), 0 24px 36px -14px rgb(0 0 0 / 0.75);
+}
+
+.app-escritorio .artista-foto-vacia {
+  width: 184px;
+  height: 184px;
+  font: 600 64px var(--fuente-display);
+  font-variation-settings: var(--fraunces-blando);
+}
+
+.app-escritorio :is(.album-encabezado h2, .reproductor h2) {
+  margin: 2px 0 6px;
+  color: var(--texto);
+  font: 650 44px/1.02 var(--fuente-display);
+  font-variation-settings: 'SOFT' 100, 'opsz' 96;
+  letter-spacing: -0.025em;
+  text-transform: none;
+}
+
+.app-escritorio .album-artista-link {
+  color: var(--texto);
+}
+
+/* Botones de acción de las fichas: ▶ de marca, secundarios en agua media. */
+.app-escritorio :is(.album-reproducir, .accion-reproducir) {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 40px;
+  padding: 0 18px;
+  border: 0;
+  border-radius: 999px;
+  background: var(--sippi);
+  color: #fff;
+  font: 600 14px var(--fuente-texto);
+  box-shadow: var(--brillo-sippi);
+}
+
+.app-escritorio :is(.album-agregar, .artista-biblioteca-todas) {
+  min-height: 40px;
+  padding: 0 18px;
+  border: 0;
+  border-radius: 999px;
+  background: var(--agua-media);
+  color: var(--texto);
+  font: 600 14px var(--fuente-texto);
+  box-shadow: 0 0 0 1px var(--linea-fuerte) inset;
+}
+
+.app-escritorio .album-favorito {
+  width: 40px;
+  height: 40px;
+  border: 0;
+  background: var(--agua-media);
+  box-shadow: var(--sombra-1);
+}
+
+.app-escritorio .album-favorito.activo {
+  color: var(--rosa);
+}
+
+/* Ayuda, textos chicos: nunca por debajo de --tenue-mas. */
+.app-escritorio .ayuda {
+  color: var(--tenue);
+}
+
+/* ---------- Hover y toque ---------- */
+.app-escritorio :is(.toggle-orden, .explorar-generos button, .tarjeta-artista, .album-reproducir, .album-agregar, .accion-reproducir, .volver, .externa-acciones > button):active {
+  transform: scale(0.97);
+}
+
+.app-escritorio :is(.externa-escuchar, .album-favorito, .c-play):active {
+  transform: scale(0.92);
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .app-escritorio :is(.toggle-orden, .explorar-generos button):hover:not(.activo) {
+    border: 0;
+    color: var(--texto);
+  }
+  .app-escritorio .tarjeta-artista:hover {
+    background: var(--hover);
+  }
+  .app-escritorio .tarjeta-artista:hover .tarjeta-artista-foto {
+    transform: none;
+    box-shadow: 0 0 0 3px var(--agua-fondo), 0 0 0 4px var(--rosa-claro), 0 18px 30px -16px rgb(0 0 0 / 0.8);
+  }
+  .app-escritorio .artista-album-tile:hover,
+  .app-escritorio :is(.cola li, .album-tracklist li, .lista-externa li):hover:not(.actual) {
+    background: var(--hover);
+  }
+  .app-escritorio .volver:hover {
+    background: var(--hover);
+    color: var(--texto);
+  }
+  .app-escritorio :is(.album-reproducir, .accion-reproducir):hover {
+    opacity: 1;
+    filter: brightness(1.08);
+  }
+  .app-escritorio :is(.album-agregar, .artista-biblioteca-todas, .externa-escuchar, .externa-acciones > button, .album-favorito):hover:not(:disabled) {
+    border: 0;
+    background: var(--agua-alta);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .app-escritorio :is(.toggle-orden, .explorar-generos button, .tarjeta-artista, .album-reproducir, .album-agregar, .accion-reproducir, .volver, .externa-acciones > button, .externa-escuchar, .album-favorito, .c-play):active {
+    transform: none;
+    filter: brightness(1.15);
+  }
+}
+
+/* Rótulos chicos: sentence case, sin mayúsculas espaciadas. */
+.app-escritorio .eyebrow {
+  margin: 0 0 4px;
+  color: var(--tenue);
+  font: 600 13.5px var(--fuente-texto);
+  letter-spacing: 0;
+  text-transform: none;
+}
+
+.app-escritorio :is(.cola-titulo, .cola-header, .ordenable, .ordenable-sub, .historial-subtitulo) {
+  letter-spacing: 0;
+  text-transform: none;
+}
+
+.app-escritorio .cola-filtro {
+  min-height: 36px;
+  padding: 0 12px;
+}
+
+/* =====================================================================
+   6 · CONFIGURACIÓN: pestañas verticales en un panel de agua honda y el
+   contenido en un grupo; interruptor con degradado de marca. Solo se
+   restilizan las opciones que ya existen (decisión 4 de la aprobación).
+   ===================================================================== */
+.app-escritorio .administrar > .titulo-pantalla {
+  margin-bottom: 22px;
+}
+
+.app-escritorio .administrar > .aviso-sin-clasificar {
+  margin: 0 0 18px;
+  border: 0;
+  border-radius: var(--r-control);
+}
+
+.app-escritorio .config {
+  display: grid;
+  grid-template-columns: 236px minmax(0, 1fr);
+  gap: 24px;
+  align-items: start;
+}
+
+.app-escritorio .config > .tabs {
+  position: sticky;
+  top: 0;
+  display: grid;
+  gap: 2px;
+  margin: 0;
+  padding: 8px;
+  border: 0;
+  border-radius: var(--r-tarjeta);
+  background: var(--agua-honda);
+  box-shadow: var(--sombra-1);
+}
+
+.app-escritorio .config > .tabs button {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 38px;
+  margin: 0;
+  padding: 0 12px;
+  border: 0;
+  border-radius: 12px;
+  color: var(--tenue);
+  font: 500 14px var(--fuente-texto);
+  text-align: left;
+  transition: background-color var(--dur-corta) ease, color var(--dur-corta) ease;
+}
+
+.app-escritorio .config > .tabs button.activo {
+  background: var(--agua-alta);
+  color: var(--texto);
+  font-weight: 600;
+}
+
+.app-escritorio .config > .tabs button.discreta:not(.activo) {
+  color: var(--tenue-mas);
+}
+
+.app-escritorio .config > .tabs .tabs-hueco {
+  height: 10px;
+}
+
+/* El contenido de cada pestaña va dentro de un grupo de agua honda. */
+.app-escritorio .config-contenido {
+  min-width: 0;
+  padding: 6px 22px 22px;
+  border-radius: var(--r-tarjeta);
+  background: var(--agua-honda);
+  box-shadow: var(--sombra-1);
+}
+
+.app-escritorio .config-contenido :is(h2, h3) {
+  color: var(--texto);
+  font-family: var(--fuente-display);
+  font-variation-settings: var(--fraunces-blando);
+  text-transform: none;
+  letter-spacing: 0;
+}
+
+.app-escritorio .config-contenido h2 {
+  margin: 16px 0 8px;
+  font-size: 19px;
+  font-weight: 600;
+}
+
+.app-escritorio .config-contenido h3 {
+  font-size: 16px;
+  font-weight: 600;
+}
+
+.app-escritorio .config-contenido .ayuda-seccion,
+.app-escritorio .config-contenido .backup {
+  max-width: 72ch;
+}
+
+/* Grupo de ajustes y fila de ajuste (texto + control). */
+.app-escritorio .grupo-aj {
+  gap: 0;
+  margin-top: 0;
+}
+
+.app-escritorio .ajuste {
+  display: flex;
+  align-items: center;
+  gap: 24px;
+  padding: 14px 0;
+}
+
+.app-escritorio .ajuste + .ajuste {
+  box-shadow: 0 -1px 0 var(--linea);
+}
+
+.app-escritorio .ajuste-txt {
+  flex: 1;
+}
+
+.app-escritorio .ajuste-txt b {
+  display: block;
+  font-size: 14.5px;
+  font-weight: 600;
+}
+
+.app-escritorio .ajuste-txt small {
+  display: block;
+  max-width: 62ch;
+  margin-top: 2px;
+  color: var(--tenue);
+  font-size: 13px;
+}
+
+.app-escritorio .interruptor {
+  position: relative;
+  flex: none;
+  width: 46px;
+  height: 28px;
+  padding: 0;
+  border: 0;
+  border-radius: 999px;
+  background: var(--agua-alta);
+  box-shadow: 0 0 0 1px var(--linea-fuerte) inset;
+  cursor: pointer;
+}
+
+.app-escritorio .interruptor::after {
+  content: '';
+  position: absolute;
+  left: 3px;
+  top: 3px;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: #d9d6ec;
+  box-shadow: 0 2px 6px rgb(0 0 0 / 0.4);
+  transition: transform var(--dur-corta) var(--ease-salida);
+}
+
+.app-escritorio .interruptor[aria-checked='true'] {
+  background: var(--sippi);
+  box-shadow: 0 6px 16px -8px rgb(255 77 141 / 0.8);
+}
+
+.app-escritorio .interruptor[aria-checked='true']::after {
+  transform: translateX(18px);
+  background: #fff;
+}
+
+.app-escritorio .interruptor:focus-visible {
+  outline-offset: 3px;
+  border-radius: 999px;
+}
+
+/* Botones de las pestañas de ajustes: marca o agua media, sin bordes. */
+.app-escritorio .config-contenido :is(.cargar-boton, .backup-descargar, .backup-restaurar-boton, .escribinos-enviar, .crear button, .sincronizacion-movil-form button, .ayuda-reboton, .ayuda-link, .aplicar-unanimes) {
+  min-height: 40px;
+  border: 0;
+  border-radius: 999px;
+}
+
+.app-escritorio .config-contenido :is(.cargar-boton, .backup-descargar, .escribinos-enviar, .crear button) {
+  background: var(--sippi);
+  color: #fff;
+  box-shadow: var(--brillo-sippi);
+}
+
+.app-escritorio .config-contenido :is(.backup-descargar-secundario, .backup-restaurar-boton, .ayuda-reboton, .sincronizacion-movil-form button) {
+  border: 0;
+  background: var(--agua-media);
+  color: var(--texto);
+  box-shadow: 0 0 0 1px var(--linea-fuerte) inset;
+}
+
+/* Tabla del editor de modos: sin cajas, solo --linea entre filas. */
+.app-escritorio .config-contenido .editor :is(th, td) {
+  border-color: var(--linea);
+}
+
+@media (max-width: 1100px) {
+  .app-escritorio .config {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .app-escritorio .config > .tabs {
+    position: static;
+  }
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .app-escritorio .config > .tabs button:hover:not(.activo) {
+    border: 0;
+    background: var(--hover);
+    color: var(--texto);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .app-escritorio .interruptor::after {
+    transition: none;
+  }
+}
+
+.app-escritorio .config-contenido .editor th {
+  letter-spacing: 0;
+  text-transform: none;
+}
+
+/* ---------- Sincronizar con el móvil (pie de la orilla) ---------- */
+.app-escritorio .orilla-sync {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-top: auto;
+  padding: 10px 12px;
+  border: 0;
+  border-radius: 14px;
+  background: var(--agua-media);
+  box-shadow: 0 0 0 1px var(--linea) inset;
+  color: var(--tenue);
+  text-align: left;
+  cursor: pointer;
+  transition: background-color var(--dur-corta) ease, color var(--dur-corta) ease, transform var(--dur-toque) var(--ease-salida);
+}
+.app-escritorio .orilla-sync-texto { display: grid; gap: 2px; min-width: 0; }
+.app-escritorio .orilla-sync b { color: var(--texto); font: 600 13px/1.2 var(--fuente-texto); }
+.app-escritorio .orilla-sync small { font: 500 11.5px/1.25 var(--fuente-texto); color: var(--tenue-mas); }
+.app-escritorio .orilla-sync.activo { background: var(--sippi-suave); color: var(--texto); }
+.app-escritorio .orilla-sync:active { transform: scale(0.97); }
+@media (hover: hover) and (pointer: fine) {
+  .app-escritorio .orilla-sync:hover { background: var(--agua-alta); }
+}
+
+/* =====================================================================
+   «Tu semana» y «Estadísticas» (escritorio). Misma lógica que el móvil;
+   aquí en formato página: Fraunces para títulos y cifras, agua-honda para
+   las superficies, el color del mood de la semana (--res-c) como acento.
+   ===================================================================== */
+.app-escritorio .acceso-sem {
+  background: linear-gradient(135deg, #ff4d8d, #7c5cff);
+  box-shadow: 0 8px 18px -8px rgb(255 77 141 / 0.7);
+}
+
+.app-escritorio .acceso-mood {
+  background: linear-gradient(135deg, #1f8a7d, #4cd9c6);
+  box-shadow: 0 8px 18px -8px rgb(76 217 198 / 0.6);
+}
+
+.app-escritorio .res-es {
+  display: flex;
+  flex-direction: column;
+  gap: 34px;
+  max-width: 1120px;
+  padding: 28px 36px 40px;
+}
+
+.app-escritorio .res-es-cab {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 14px 24px;
+}
+
+.app-escritorio .res-es-cab p {
+  margin: 6px 0 0;
+  color: var(--tenue);
+  font-size: 14.5px;
+}
+
+.app-escritorio .res-es h2 {
+  margin: 0 0 14px;
+  color: var(--texto);
+  font: 600 22px/1.2 var(--fuente-display);
+  font-variation-settings: var(--fraunces-blando);
+  letter-spacing: -0.01em;
+}
+
+.app-escritorio .res-es-periodos {
+  display: inline-flex;
+  gap: 4px;
+  padding: 4px;
+  border-radius: var(--r-pill);
+  background: var(--agua-honda);
+}
+
+.app-escritorio .res-es-periodos button {
+  min-height: 34px;
+  padding: 0 16px;
+  border: 0;
+  border-radius: var(--r-pill);
+  background: none;
+  color: var(--tenue);
+  font: 500 13.5px var(--fuente-texto);
+  transition: background-color var(--dur-corta) ease, color var(--dur-corta) ease, transform var(--dur-toque) var(--ease-salida);
+}
+
+.app-escritorio .res-es-periodos button.activo {
+  background: var(--agua-alta);
+  color: var(--texto);
+}
+
+.app-escritorio .res-es-enlace,
+.app-escritorio .res-es-boton {
+  align-self: flex-start;
+  min-height: 38px;
+  margin-top: 6px;
+  padding: 0 16px;
+  border: 0;
+  border-radius: var(--r-pill);
+  background: var(--agua-alta);
+  color: var(--texto);
+  font: 600 13.5px var(--fuente-texto);
+  transition: background-color var(--dur-corta) ease, transform var(--dur-toque) var(--ease-salida);
+}
+
+.app-escritorio .res-es-vacio {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 36px;
+  border-radius: var(--r-tarjeta);
+  background: var(--agua-honda);
+}
+
+.app-escritorio .res-es-vacio b {
+  font: 600 22px/1.2 var(--fuente-display);
+}
+
+.app-escritorio .res-es-vacio p {
+  margin: 0;
+  color: var(--tenue);
+}
+
+/* Tu semana: cifra grande a la izquierda, canción en bucle a la derecha. */
+.app-escritorio .res-semana-portada {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 20px;
+  align-items: stretch;
+}
+
+.app-escritorio .res-semana-minutos {
+  display: flex;
+  flex-direction: column;
+  padding: 30px 32px;
+  border-radius: var(--r-hero);
+  background: color-mix(in srgb, var(--res-c) 55%, var(--agua-fondo));
+}
+
+.app-escritorio .res-es-pre {
+  margin: 0;
+  font-size: 15px;
+  color: rgb(255 255 255 / 0.85);
+}
+
+.app-escritorio .res-es-gigante {
+  margin: 4px 0 0;
+  font: 650 clamp(72px, 9vw, 120px)/0.95 var(--fuente-display);
+  font-variation-settings: 'SOFT' 100, 'opsz' 144;
+  letter-spacing: -0.035em;
+  font-variant-numeric: tabular-nums;
+}
+
+.app-escritorio .res-es-unidad {
+  margin: 6px 0 14px;
+  font: 600 20px var(--fuente-display);
+}
+
+.app-escritorio .res-es-nota {
+  margin: 0 0 4px;
+  color: rgb(255 255 255 / 0.78);
+  font-size: 14px;
+}
+
+.app-escritorio .res-semana-minutos .res-es-enlace {
+  margin-top: auto;
+  background: rgb(0 0 0 / 0.28);
+}
+
+.app-escritorio .res-semana-bucle {
+  position: relative;
+  display: block;
+  min-height: 320px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--r-hero);
+  overflow: hidden;
+  background: var(--agua-honda);
+  color: #fff;
+  text-align: left;
+  transition: transform var(--dur-toque) var(--ease-salida);
+}
+
+.app-escritorio .res-semana-bucle > img {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.app-escritorio .res-semana-bucle-txt {
+  position: absolute;
+  inset: auto 0 0 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 64px 24px 22px;
+  background: linear-gradient(to top, rgb(10 11 22 / 0.92), transparent);
+}
+
+.app-escritorio .res-semana-bucle-txt small {
+  color: rgb(255 255 255 / 0.8);
+  font-size: 13px;
+}
+
+.app-escritorio .res-semana-bucle-txt b {
+  font: 650 28px/1.1 var(--fuente-display);
+  letter-spacing: -0.02em;
+}
+
+.app-escritorio .res-semana-bucle-txt em {
+  margin-top: 6px;
+  color: rgb(255 255 255 / 0.8);
+  font-size: 13.5px;
+  font-style: normal;
+}
+
+.app-escritorio .res-semana-play {
+  position: absolute;
+  top: 16px;
+  right: 16px;
+  display: grid;
+  place-items: center;
+  width: 46px;
+  height: 46px;
+  border-radius: 50%;
+  background: var(--sippi);
+  box-shadow: var(--brillo-sippi);
+}
+
+.app-escritorio .res-semana-artistas {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  gap: 18px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.app-escritorio .res-semana-artistas button {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  width: 100%;
+  gap: 2px;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--texto);
+  text-align: center;
+  transition: transform var(--dur-toque) var(--ease-salida);
+}
+
+.app-escritorio .res-semana-artistas img {
+  width: 100%;
+  max-width: 150px;
+  aspect-ratio: 1;
+  margin-bottom: 8px;
+  border-radius: 50%;
+  object-fit: cover;
+  background: var(--agua-honda);
+}
+
+.app-escritorio .res-semana-artistas b {
+  max-width: 100%;
+  overflow: hidden;
+  font-size: 14.5px;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.app-escritorio .res-semana-artistas small {
+  color: var(--tenue);
+}
+
+.app-escritorio .res-semana-datos {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 14px;
+}
+
+.app-escritorio .res-semana-dato {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 22px 24px;
+  border-radius: var(--r-tarjeta);
+  background: var(--agua-honda);
+}
+
+.app-escritorio .res-semana-dato small {
+  color: var(--tenue);
+  font-size: 13px;
+}
+
+.app-escritorio .res-semana-dato b {
+  font: 650 24px/1.15 var(--fuente-display);
+  letter-spacing: -0.015em;
+}
+
+.app-escritorio .res-semana-dato span {
+  color: var(--tenue);
+  font-size: 14px;
+}
+
+/* Estadísticas */
+.app-escritorio .res-estad-resumen {
+  display: grid;
+  grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr);
+  gap: 20px;
+}
+
+.app-escritorio .res-estad-hero {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 28px 32px;
+  border-radius: var(--r-hero);
+  background: var(--agua-media);
+}
+
+.app-escritorio .res-estad-hero small,
+.app-escritorio .res-estad-cifras small {
+  color: var(--tenue);
+  font-size: 13px;
+}
+
+.app-escritorio .res-estad-hero b {
+  font: 650 clamp(44px, 5.5vw, 68px)/1 var(--fuente-display);
+  font-variation-settings: 'SOFT' 100, 'opsz' 144;
+  letter-spacing: -0.03em;
+}
+
+.app-escritorio .res-estad-hero > span {
+  color: var(--tenue);
+  font-size: 14px;
+}
+
+.app-escritorio .res-estad-cifras {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+
+.app-escritorio .res-estad-cifras > div {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 2px;
+  padding: 16px 20px;
+  border-radius: var(--r-tarjeta);
+  background: var(--agua-honda);
+}
+
+.app-escritorio .res-estad-cifras b {
+  font: 650 24px/1.1 var(--fuente-display);
+}
+
+.app-escritorio .res-estad-cifras span {
+  color: var(--tenue-mas);
+  font-size: 12.5px;
+}
+
+.app-escritorio .res-estad-cols {
+  display: grid;
+  grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr);
+  gap: 34px 28px;
+  align-items: start;
+}
+
+.app-escritorio .res-estad-ancha {
+  grid-column: 1 / -1;
+}
+
+.app-escritorio :is(.res-estad-lista, .res-estad-artistas) {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.app-escritorio :is(.res-estad-lista, .res-estad-artistas) button,
+.app-escritorio .res-estad-fila {
+  display: grid;
+  align-items: center;
+  width: 100%;
+  padding: 8px 10px;
+  border: 0;
+  border-radius: 14px;
+  background: none;
+  color: var(--texto);
+  text-align: left;
+  transition: background-color var(--dur-corta) ease, transform var(--dur-toque) var(--ease-salida);
+}
+
+.app-escritorio .res-estad-lista button {
+  grid-template-columns: 48px minmax(0, 1fr) 90px 36px;
+  gap: 14px;
+}
+
+.app-escritorio .res-estad-artistas button {
+  grid-template-columns: 48px minmax(0, 1fr) auto;
+  gap: 14px;
+}
+
+.app-escritorio :is(.res-estad-portada, .res-estad-foto) {
+  width: 48px;
+  height: 48px;
+  border-radius: var(--r-portada-s);
+  object-fit: cover;
+  overflow: hidden;
+}
+
+.app-escritorio .res-estad-foto {
+  border-radius: 50%;
+}
+
+.app-escritorio .res-estad-txt {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.app-escritorio .res-estad-txt b,
+.app-escritorio .res-estad-artistas b {
+  overflow: hidden;
+  font-size: 14.5px;
+  font-weight: 600;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.app-escritorio .res-estad-txt small,
+.app-escritorio .res-estad-artistas small,
+.app-escritorio .res-estad-n,
+.app-escritorio .res-estad-pct {
+  overflow: hidden;
+  color: var(--tenue);
+  font-size: 12.5px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.app-escritorio .res-estad-n,
+.app-escritorio .res-estad-pct {
+  text-align: right;
+}
+
+.app-escritorio .res-estad-barrita,
+.app-escritorio .res-estad-barra {
+  height: 8px;
+  border-radius: var(--r-pill);
+  background: var(--agua-honda);
+  overflow: hidden;
+}
+
+.app-escritorio .res-estad-barrita i {
+  display: block;
+  height: 100%;
+  border-radius: var(--r-pill);
+  background: var(--sippi);
+}
+
+.app-escritorio .res-estad-barra i {
+  display: block;
+  height: 100%;
+  border-radius: var(--r-pill);
+}
+
+.app-escritorio .res-estad-reparto {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 4px 28px;
+}
+
+.app-escritorio .res-estad-fila {
+  grid-template-columns: minmax(0, 150px) minmax(0, 1fr) 44px;
+  gap: 14px;
+  font-size: 14px;
+}
+
+.app-escritorio .res-estad-nombre {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .app-escritorio :is(.res-estad-lista, .res-estad-artistas) button:hover,
+  .app-escritorio .res-estad-fila:hover,
+  .app-escritorio .res-es-periodos button:not(.activo):hover {
+    background: var(--hover-escritorio, rgb(255 255 255 / 0.06));
+  }
+  .app-escritorio :is(.res-es-enlace, .res-es-boton):hover {
+    background: color-mix(in srgb, var(--agua-alta) 70%, #fff 12%);
+  }
+}
+
+.app-escritorio :is(.res-es-enlace, .res-es-boton, .res-es-periodos button, .res-semana-bucle, .res-semana-artistas button, .res-estad-lista button, .res-estad-artistas button, .res-estad-fila):active {
+  transform: scale(0.98);
+}
+
+@media (max-width: 1100px) {
+  .app-escritorio .res-es {
+    padding: 22px 24px 36px;
+  }
+  .app-escritorio :is(.res-semana-portada, .res-estad-resumen, .res-estad-cols, .res-estad-reparto) {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .app-escritorio .res-semana-bucle {
+    min-height: 260px;
+  }
+}

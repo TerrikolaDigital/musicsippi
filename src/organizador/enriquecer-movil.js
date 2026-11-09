@@ -74,8 +74,11 @@ export function pendientesDe(tracks, registros, marca) {
   return tracks.filter((t) => (t.fuentes ?? []).includes(FUENTE_MOVIL) && !porId.get(t.id)?.[marca]);
 }
 
-/** GET JSON con reintento ante 429/5xx y ante la cuota de Deezer (error.code 4). Otros 4xx → null. */
-async function pedirJson(http, url, { headers = {}, esperar, reintentos = 3 } = {}) {
+/**
+ * GET JSON con reintento ante 429/5xx y ante la cuota de Deezer (error.code 4). Otros 4xx → null.
+ * Con `estricto`, solo el 404 es «no hay»: otro 4xx, un error de Deezer o una respuesta que no es JSON lanzan.
+ */
+export async function pedirJson(http, url, { headers = {}, esperar, reintentos = 3, estricto = false } = {}) {
   for (let intento = 0; ; intento++) {
     const r = await http.get(url, { headers });
     const saturado = r.status === 429 || r.status >= 500;
@@ -92,6 +95,7 @@ async function pedirJson(http, url, { headers = {}, esperar, reintentos = 3 } = 
       await esperar(2000 * (intento + 1));
       continue;
     }
+    if (estricto && r.status !== 404 && (r.status >= 400 || json == null || json.error)) throw new Error(`respuesta inválida (HTTP ${r.status})`);
     return r.status >= 400 ? null : json;
   }
 }
@@ -101,7 +105,7 @@ async function guardarEnGeneros(almacen, trackId, datos) {
   await almacen.guardarRegistro('generos', { ...previo, trackId, ...datos });
 }
 
-async function completarMetadata(almacen, trackId, datos) {
+export async function completarMetadata(almacen, trackId, datos) {
   const previa = await almacen.obtenerPorClave('metadataLocal', trackId);
   const nuevos = Object.fromEntries(Object.entries(datos).filter(([k, v]) => v != null && previa?.[k] == null));
   if (Object.keys(nuevos).length) await almacen.guardarRegistro('metadataLocal', { ...previa, trackId, ...nuevos });

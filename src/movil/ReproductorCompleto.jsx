@@ -9,6 +9,7 @@ import FilaCancion from './FilaCancion.jsx';
 import PanelLetras from '../PanelLetras.jsx';
 import ChipTemporizador from './ChipTemporizador.jsx';
 import { portadaDe } from './MiniReproductor.jsx';
+import { buscarEnBiblioteca } from './anadirActual.js';
 import { PortadaImg, PortadaCruce } from './PortadaGenerada.jsx';
 import { useCruce } from './useCruce.js';
 import { textoPortada } from './portadaGenerada.js';
@@ -19,10 +20,13 @@ import { tramoVisible, TRAMO } from './tramos.js';
 import { destinoArrastre, desplazamientoFila } from './reordenar.js';
 import { albumDe, primerArtista } from './albumLocal.js';
 import { formatearTitulo, reloj } from '../ui/formato.js';
+import { separarInvitados } from '../ui/creditos.js';
 import { textoEstadoResolucion } from './formato.js';
-import { abrirSelectorSalida, esAndroid } from '../data/nativo-movil.js';
+import { abrirSelectorSalida, compartir, esAndroid } from '../data/nativo-movil.js';
+import { informeDiagnostico } from '../useReproductorNativo.js';
 import { obtenerLetras, lineaActual } from '../data/letras.js';
 import { useDesfaseLetra } from '../data/useDesfaseLetra.js';
+import { textoFranjaSenal } from '../data/respaldo-senal.js';
 
 const YA_SONARON = 10;
 
@@ -261,12 +265,15 @@ export default function ReproductorCompleto({ ctx, nav, vista, saliendo = false 
   const gestoPortada = useRef(null);
   const [desplazamientoPortada, setDesplazamientoPortada] = useState(0);
   // El track de la cola es una copia: sus modos al día están en ctx.tracks.
-  const vivo = useMemo(() => (t ? (ctx.tracks.find((x) => x.id === t.id) ?? t) : null), [ctx.tracks, t]);
+  // `guardada` es su copia de la biblioteca aunque suene con otra identidad (`album-…`, `preview-…`): sin ella
+  // el corazón de una canción añadida desde el bloqueo no se veía marcado.
+  const guardada = useMemo(() => buscarEnBiblioteca(t, ctx.tracks, ctx.videoIdDe), [ctx.tracks, ctx.videoIdDe, t]);
+  const vivo = guardada ?? t;
   const portada = t ? portadaDe(ctx, t) : null;
   const textoSin = t ? textoPortada(t, ctx.metadataDe(t.trackIdReal ?? t.id)) : '';
   const { t1, t2, lum } = usePaleta(portada, textoSin);
   const velo = veloReproductor(lum);
-  const capas = useCruce(portada);
+  const capas = useCruce(portada, t ? ctx.metadataDe(t.trackIdReal ?? t.id)?.coverRespaldo ?? null : null);
 
   // Apertura desde el mini (440 ms): el panel crece con clip-path y la portada viaja
   // del mini a su sitio (FLIP); el resto de piezas entra con un fundido corto.
@@ -334,7 +341,10 @@ export default function ReproductorCompleto({ ctx, nav, vista, saliendo = false 
 
   const estado = textoEstadoResolucion(ctx.estadoResolucion, ctx.modoLocal);
   const esFav = !!vivo?.ejes?.some((e) => e.ejeId === 'favoritos');
+  // Antes de guardarla, el corazón lo marca el estado del botón «Añadir»; después, la biblioteca.
+  const marcada = guardada ? esFav : !!ctx.anadirActual?.favorita;
   const meta = ctx.metadataDe(t.trackIdReal ?? t.id);
+  const creditos = separarInvitados(t); // igual que el mini y la notificación
   const tiempo = pos ?? ctx.tiempo;
   const max = ctx.duracion > 0 ? ctx.duracion : 0;
   const pct = max > 0 ? Math.min(100, (tiempo / max) * 100) : 0;
@@ -365,7 +375,7 @@ export default function ReproductorCompleto({ ctx, nav, vista, saliendo = false 
       const dy = e.clientY - g.y;
       const rapido = Math.abs(dx) > 90 && performance.now() - g.t < 260;
       if (Math.abs(dx) > Math.abs(dy) * 1.25 && (Math.abs(dx) >= g.ancho * 0.25 || rapido)) {
-        if (dx < 0) ctx.siguiente(); else ctx.anterior();
+        if (dx < 0) ctx.siguienteUsuario(); else ctx.anterior();
       }
       setDesplazamientoPortada(0);
     },
@@ -409,7 +419,11 @@ export default function ReproductorCompleto({ ctx, nav, vista, saliendo = false 
           <IconoM nombre="abajo" />
         </button>
         <span className="rep-tirador" aria-hidden="true" />
-        <p className="rep-desde">Sonando desde · {formatearTitulo(ctx.ejeActivo?.nombre ?? 'tu biblioteca')}</p>
+        {ctx.senalDebil?.activo ? (
+          <p className="rep-desde rep-sin-senal" role="status">{textoFranjaSenal(ctx.senalDebil)}</p>
+        ) : (
+          <p className="rep-desde">Sonando desde · {formatearTitulo(ctx.ejeActivo?.nombre ?? 'tu biblioteca')}</p>
+        )}
       </div>
 
       {compacta && (
@@ -454,14 +468,14 @@ export default function ReproductorCompleto({ ctx, nav, vista, saliendo = false 
       {!compacta && (
       <div className="rep-info">
         <div className="rep-info-txt">
-          <b key={`t-${t.id}`} className="cruce-texto">{formatearTitulo(t.titulo)}</b>
+          <b key={`t-${t.id}`} className="cruce-texto">{formatearTitulo(creditos.titulo)}</b>
           <button
             key={`a-${t.id}`}
             type="button"
             className="rep-artista cruce-texto"
             onClick={() => nav.abrir({ tipo: 'artista', nombre: t.artista })}
           >
-            {formatearTitulo(t.artista)}
+            {formatearTitulo(creditos.artista)}
           </button>
           {albumDe(t, meta) && (
             <button
@@ -487,13 +501,28 @@ export default function ReproductorCompleto({ ctx, nav, vista, saliendo = false 
               {ctx.anadirActual.estado === 'ok' ? 'En tu biblioteca' : ctx.anadirActual.estado === 'error' ? 'Reintentar' : 'Añadir'}
             </button>
           )}
-          {estado && <span className="rep-estado" role="status">{estado}</span>}
+          {estado && (
+            <span
+              className={`rep-estado${['buscando', 'preparando'].includes(ctx.estadoResolucion) ? ' neutro' : ''}`}
+              role="status"
+            >
+              {estado}
+            </span>
+          )}
+          {ctx.estadoResolucion === 'no_arranca' && (
+            <button
+              className="rep-enviar-detalle"
+              onClick={() => compartir({ titulo: 'Diagnóstico de Musicsippi', texto: informeDiagnostico() }).catch(() => {})}
+            >
+              Enviar detalle del fallo
+            </button>
+          )}
         </div>
         <button
-          className={`rep-icono${esFav || ctx.anadirActual?.favorita ? ' on' : ''}`}
-          aria-label={esFav || ctx.anadirActual?.favorita ? 'Quitar de favoritas' : 'Añadir a favoritas'}
-          aria-pressed={esFav || !!ctx.anadirActual?.favorita}
-          onClick={() => (ctx.anadirActual?.externa ? ctx.anadirActual.anadir({ favorita: true }) : ctx.alternarFavorito(t.id, !esFav))}
+          className={`rep-icono${marcada ? ' on' : ''}`}
+          aria-label={marcada ? 'Quitar de favoritas' : 'Añadir a favoritas'}
+          aria-pressed={marcada}
+          onClick={() => (!guardada && ctx.anadirActual ? ctx.anadirActual.anadir({ favorita: true }) : ctx.alternarFavorito(guardada?.id ?? t.id, !esFav))}
         >
           <IconoM nombre="corazon" />
         </button>
@@ -537,7 +566,7 @@ export default function ReproductorCompleto({ ctx, nav, vista, saliendo = false 
         <button className="rep-ctrl-play" aria-label={ctx.sonando ? 'Pausar' : 'Reproducir'} onClick={ctx.alternarPausa}>
           <IconoM nombre={ctx.sonando ? 'pausa' : 'play'} tamano={30} />
         </button>
-        <button aria-label="Siguiente" onClick={ctx.siguiente}>
+        <button aria-label="Siguiente" onClick={ctx.siguienteUsuario}>
           <IconoM nombre="siguiente" tamano={30} />
         </button>
       </div>
@@ -564,7 +593,7 @@ export default function ReproductorCompleto({ ctx, nav, vista, saliendo = false 
             className={ctx.repetir ? 'on' : ''}
             aria-label="Repetir"
             aria-pressed={ctx.repetir}
-            onClick={() => ctx.setRepetir((r) => !r)}
+            onClick={ctx.alternarRepetir}
           >
             <IconoM nombre="repetir" />
           </button>

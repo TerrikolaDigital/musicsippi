@@ -58,7 +58,7 @@ async function buscar(track, intento = 0) {
  * NO se cachea: el track queda pendiente para la próxima corrida en vez de
  * marcarse "sin resultado" para siempre por una falla pasajera — corre sin
  * supervisión en background, a diferencia del script de terminal donde
- * el usuario podía simplemente volver a correrlo a mano.
+ * El usuario podía simplemente volver a correrlo a mano.
  *
  * Devuelve `{ total, encontrados, sinResultado }`.
  */
@@ -93,9 +93,11 @@ export async function enriquecerDeezer(dataDir, { onProgreso, limite = Infinity 
     const previo = meta.tracks[track.id] ?? {};
     if (item) {
       const fotoCruda = item.artist?.picture_big ?? item.artist?.picture_medium ?? null;
+      const coverCruda = item.album?.cover_big ?? item.album?.cover_medium ?? null;
       meta.tracks[track.id] = {
         ...previo,
-        coverUrl: item.album?.cover_big ?? item.album?.cover_medium ?? null,
+        // Deezer también devuelve una carátula gris genérica para álbumes sin imagen: no se guarda.
+        coverUrl: (await esFotoPlaceholder(coverCruda, cachePlaceholder)) ? null : coverCruda,
         fotoArtista: (await esFotoPlaceholder(fotoCruda, cachePlaceholder)) ? null : fotoCruda,
       };
       encontrados++;

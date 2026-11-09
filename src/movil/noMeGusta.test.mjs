@@ -8,6 +8,7 @@ import {
   esNoMeGusta,
   filtrarNoMeGusta,
   quitarMarca,
+  reproduciblesSinMarcas,
 } from './noMeGusta.js';
 
 const t = (id, artista, titulo) => ({ id, artista, titulo });
@@ -59,4 +60,26 @@ test('coincideEntrada: la canción que suena coincide con su marca o con la de s
 test('si las marcas no son una lista (dato erróneo) no filtra ni lanza', () => {
   assert.equal(filtrarNoMeGusta(lista, () => {}), lista);
   assert.equal(esNoMeGusta(lista[0], () => {}), false);
+});
+
+test('agregarMarca conserva origen, eraFavorita y trackId', () => {
+  const entrada = { ...entradaCancion(lista[0]), origen: 'saltos', artista: 'Ana', trackId: 'abc', eraFavorita: true };
+  const [m] = agregarMarca([], entrada, 5);
+  assert.deepEqual(m, { tipo: 'cancion', clave: entrada.clave, etiqueta: entrada.etiqueta, fecha: 5, origen: 'saltos', artista: 'Ana', trackId: 'abc', eraFavorita: true });
+});
+
+test('reproduciblesSinMarcas quita las marcadas', () => {
+  const marcas = [entradaArtista('Ana')];
+  assert.deepEqual(reproduciblesSinMarcas(lista, marcas, null).map((x) => x.id), ['2', '4']);
+});
+
+test('reproduciblesSinMarcas conserva trackInicial aunque esté marcado', () => {
+  const marcas = [entradaArtista('Ana')];
+  assert.deepEqual(reproduciblesSinMarcas(lista, marcas, lista[0]).map((x) => x.id), ['1', '2', '4']);
+});
+
+test('reproduciblesSinMarcas: lista toda marcada devuelve vacía; sin marcas, la misma', () => {
+  const marcas = [entradaArtista('Ana'), entradaArtista('Beto'), entradaArtista('Dani')];
+  assert.deepEqual(reproduciblesSinMarcas(lista, marcas, null), []);
+  assert.equal(reproduciblesSinMarcas(lista, [], null), lista);
 });

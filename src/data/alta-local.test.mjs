@@ -71,7 +71,7 @@ test('las canciones de YouTube guardan su videoId', async () => {
   const almacen = crearAlmacenMemoria({ ejes: EJES });
   await importarFilasLocal([fila('Dai Dai', 'Shakira, Burna Boy', { videoId: 'fcnDmrtj6Sk' })], { nombrePlaylist: 'Top', origen: 'youtube' }, almacen);
   const id = await idTrackNavegador('Shakira, Burna Boy', 'Dai Dai');
-  assert.deepEqual(await almacen.obtenerPorClave('cacheYoutube', id), { trackId: id, videoId: 'fcnDmrtj6Sk' });
+  assert.deepEqual(await almacen.obtenerPorClave('cacheYoutube', id), { trackId: id, videoId: 'fcnDmrtj6Sk', origen: 'usuario' });
 });
 
 test('el CSV para el PC da los mismos ids aunque haya comas, comillas y saltos de línea', async () => {
@@ -94,6 +94,16 @@ test('el CSV para el PC da los mismos ids aunque haya comas, comillas y saltos d
   const listaPC = stats.listasNuevas[0];
   const listaMovil = (await almacen.obtenerTodos('ejes')).find((e) => e.tipo === 'playlist');
   assert.equal(listaPC.id, listaMovil.id);
+});
+
+test('agregarTrackLocal conserva la portada de la vista previa, también si la canción ya existía', async () => {
+  const almacen = crearAlmacenMemoria({ ejes: EJES });
+  const r = await agregarTrackLocal({ titulo: 'Starboy', artista: 'The Weeknd', videoId: 'abc', coverUrl: 'https://x/a=w120-h120-l90' }, almacen);
+  assert.equal((await almacen.obtenerPorClave('metadataLocal', r.track.id)).coverUrl, 'https://x/a=w544-h544');
+  const sinPortada = await agregarTrackLocal({ titulo: 'Blinding Lights', artista: 'The Weeknd', videoId: 'def' }, almacen);
+  assert.equal(await almacen.obtenerPorClave('metadataLocal', sinPortada.track.id), undefined);
+  await agregarTrackLocal({ titulo: 'Blinding Lights', artista: 'The Weeknd', coverUrl: 'https://x/b.jpg' }, almacen);
+  assert.equal((await almacen.obtenerPorClave('metadataLocal', sinPortada.track.id)).coverUrl, 'https://x/b.jpg');
 });
 
 test('agregarTrackLocal da de alta, guarda el vídeo y anota agregar-track', async () => {

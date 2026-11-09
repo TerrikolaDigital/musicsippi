@@ -1,6 +1,7 @@
-import { lazy, Suspense, useState, useMemo, useCallback, useEffect, useLayoutEffect, useRef } from 'react';
+import { lazy, Suspense, useState, useMemo, useCallback, useEffect, useRef } from 'react';
 import { MODO_LOCAL } from './config/modo.js';
 import { Capacitor } from '@capacitor/core';
+import { estadoVisible } from './data/arranque-nativo.js';
 import { useReproductor, hayColaNativa } from './useReproductor.js';
 import { obtenerOnboardingVisto, marcarOnboardingVisto } from './data/onboarding.js';
 import { avisoInfinito, avisoFavoritas, avisoModo, avisoRadio } from './movil/avisos.js';
@@ -40,15 +41,25 @@ import { colorDePortada } from './colorPortada.js';
 import { barajarSeparandoArtistas, ultimaVezDeHistorial } from './movil/barajar.js';
 import { elegirContinuacion } from './movil/continuacion.js';
 import { camposDeMoodNuevo } from './movil/modos.js';
-import { agregarAlFinal, insertarDespues } from './movil/insertarCola.js';
-import { repeticionSeCancela } from './movil/repetirUna.js';
+import { agregarAlFinal, barajarConNuevas, insertarDespues } from './movil/insertarCola.js';
+import { buscarEnBiblioteca, esFavoritaEnBiblioteca } from './movil/anadirActual.js';
+import { nuevasParaCola, pistasDePopulares } from './movil/populares.js';
+import { datosSesion } from './data/sesion-cola.js';
+import { aleatorioRestaurado, repeticionSeCancela, repetirSegunAleatorio } from './movil/repetirUna.js';
+import { crearRegistroReproducciones, trackDeNota, unirAlHistorial } from './movil/reproducciones.js';
 import { encadenadaConAnterior } from './data/fundido.js';
-import { filtrarNoMeGusta } from './movil/noMeGusta.js';
+import { coincideEntrada, entradaCancion, filtrarNoMeGusta, reproduciblesSinMarcas } from './movil/noMeGusta.js';
+import { accionAlQuitar } from './movil/quitarSonando.js';
 import { useNoMeGusta } from './movil/useNoMeGusta.js';
+import { useSaltos } from './movil/useSaltos.js';
+import { cuentaComoSaltoUsuario, resolverPendientesNativos } from './movil/saltos.js';
 import { conPortadasPropias } from './movil/portadaEje.js';
 import { leerContinuar, EVENTO_CONTINUAR } from './data/continuar-al-acabar.js';
 import { formatearTitulo, colorDeEje } from './ui/formato.js';
-import ShellMovil from './movil/ShellMovil.jsx';
+import { calcularRespaldo } from './data/respaldo-senal.js';
+import { separarInvitados } from './ui/creditos.js';
+import { registrarRespaldo } from './movil/respaldoPortadas.js';
+import { armarAlbumes } from './movil/portadaAlbum.js';
 import { useImportarOrganizar } from './movil/useImportarOrganizar.js';
 import { indiceDePista } from './data/sincronizar-nativo.js';
 import { anotarSiDisponibleEnPC, esIdLocal, idLocal, idReproductor, tieneArchivoLocal, trackIdDeIdLocal } from './data/reproduccion-locales.js';
@@ -63,9 +74,11 @@ import { refrescarBibliotecaLocal } from './data/refrescar-biblioteca-local.js';
 import { crearSeguimientoUso } from './organizador/seguimiento-uso.js';
 import ejesIniciales from '../data/ejes.json';
 import biblioteca from '../data/biblioteca.json';
-import { restaurarSesion, separarArtistas, migrarPersistenciaLocal, fotoEsValida, guardarSesion, EditorEjes, Ayuda, Escribinos, AcercaDe, SincronizacionMovil } from './escritorio/compartido.jsx';
+import { restaurarSesion, idEnBiblioteca, separarArtistas, migrarPersistenciaLocal, fotoEsValida, guardarSesion, EditorEjes, Ayuda, Escribinos, AcercaDe, SincronizacionMovil } from './escritorio/compartido.jsx';
 
 const AppEscritorio = lazy(() => import('./escritorio/AppEscritorio.jsx'));
+// También diferida: son ~120 módulos que el escritorio a ancho normal no usa (arranque más rápido).
+const ShellMovil = lazy(() => import('./movil/ShellMovil.jsx'));
 
 export default function App() {
   const [ejes, setEjes] = useState(ejesIniciales.ejes);
@@ -74,6 +87,8 @@ export default function App() {
   // y en la propia lista (sin esto, esas tres cosas mostraban datos de hace horas
   // hasta recargar la pagina, aunque el disco ya tuviera el dato correcto).
   const [tracks, setTracks] = useState(() => biblioteca.tracks);
+  const tracksRef = useRef(tracks); // para los callbacks que corren fuera del render (pantalla de bloqueo)
+  tracksRef.current = tracks;
   const [vista, setVista] = useState('modos');
   const [verLetras, setVerLetras] = useState(false);
   // Pantallas estrechas (app Android, navegador del móvil): interfaz móvil propia.
@@ -98,78 +113,17 @@ export default function App() {
       .finally(() => setBibliotecaCargada(true));
   }, []);
 
-  // Cabecera sticky que se encoge al bajar y vuelve a su alto al subir (ver
-  // docs/superpowers/specs/2026-09-15-shell-scroll-unico-design.md, revisión
-  // "header auto-oculto"). `body` volvió a ser el único que scrollea —
-  // encogerla con `height` (no `transform`) hace que sea una caja normal en
-  // el flujo del documento: al llegar a 0 el contenido de abajo sube solo,
-  // sin dejar un hueco vacío como pasaría con position:fixed.
-  const cabeceraOuterRef = useRef(null);
-  const cabeceraInnerRef = useRef(null);
-  const alturaCabeceraRef = useRef(0);
-  const cabeceraVisibleRef = useRef(true);
-  const ultimoScrollY = useRef(0);
-  // La interfaz de escritorio llega en un chunk perezoso: la cabecera no existe en el
-  // primer render de App, así que se mide cuando AppEscritorio avisa que se montó.
-  const [escritorioMontado, setEscritorioMontado] = useState(false);
-
-  // Escribe el alto directo en el DOM (nodo.style + la variable CSS), sin
-  // pasar por React state/setState. Probado en vivo (app instalada con la
-  // biblioteca real, no la demo chica): aunque ya no hay transition CSS,
-  // el camino scroll -> setState -> re-render -> commit sigue quedando al
-  // menos un frame detrás del scroll real, y con más DOM real ese
-  // desfasaje crece — eso es lo que se ve como salto/inestabilidad. Al
-  // mutar el DOM ACA, en el mismo tick del evento de scroll, no hay ciclo
-  // de render de por medio que pueda quedar atrás.
-  function aplicarAlturaCabecera() {
-    const nodo = cabeceraOuterRef.current;
-    if (!nodo) return;
-    const alto = cabeceraVisibleRef.current ? alturaCabeceraRef.current : 0;
-    nodo.style.height = `${alto}px`;
-    document.documentElement.style.setProperty('--cabecera-alto-actual', `${alto}px`);
-  }
-
-  useLayoutEffect(() => {
-    const nodo = cabeceraInnerRef.current;
-    if (!nodo) return;
-    const medir = () => {
-      alturaCabeceraRef.current = nodo.offsetHeight;
-      aplicarAlturaCabecera();
-    };
-    medir();
-    const ro = new ResizeObserver(medir);
-    ro.observe(nodo);
-    return () => ro.disconnect();
-  }, [escritorioMontado]);
-
-  // Umbral de 8px: sin él, el ruido normal de la rueda del mouse (variaciones
-  // de 1-2px por evento) hace que la cabecera parpadee entre mostrarse y
-  // esconderse en cada tick de scroll. Debajo de 40px del top siempre se
-  // muestra — evita que arranque escondida si la página ya cargó con algo
-  // de scroll restaurado (ej. al volver de otra vista).
-  useEffect(() => {
-    const UMBRAL = 8;
-    function alScrollear() {
-      const y = window.scrollY;
-      let visible = cabeceraVisibleRef.current;
-      if (y < 40) visible = true;
-      else if (y > ultimoScrollY.current + UMBRAL) visible = false;
-      else if (y < ultimoScrollY.current - UMBRAL) visible = true;
-      ultimoScrollY.current = y;
-      if (visible !== cabeceraVisibleRef.current) {
-        cabeceraVisibleRef.current = visible;
-        aplicarAlturaCabecera();
-      }
-    }
-    window.addEventListener('scroll', alScrollear, { passive: true });
-    return () => window.removeEventListener('scroll', alScrollear);
-  }, []);
+  // Escritorio: ya no hay cabecera sticky que medir ni que esconder al scrollear.
+  // La navegación vive en la orilla (barra lateral fija) y scrollea solo el
+  // contenido (.cauce) — ver docs/maquetas/escritorio-v4-corriente.md.
 
   // `ejeActivo` es el modo de lo que REALMENTE está sonando (dueño de `cola`);
   // `ejeVista` es el modo que se está mirando en pantalla. Antes eran la misma
   // cosa y por eso simplemente abrir un modo pisaba la cola y cortaba lo que
   // sonaba de otro lado — ver el comentario en `entrarAModo`.
   const [ejeActivo, setEjeActivo] = useState(() => restaurarSesion()?.ejeActivo ?? null);
+  const ejeActivoRef = useRef(ejeActivo);
+  ejeActivoRef.current = ejeActivo;
   const [ejeVista, setEjeVista] = useState(() => restaurarSesion()?.ejeVista ?? null);
   const [cola, setCola] = useState(() => restaurarSesion()?.cola ?? []);
   const [indice, setIndice] = useState(() => restaurarSesion()?.indice ?? 0);
@@ -185,7 +139,13 @@ export default function App() {
     window.addEventListener(EVENTO_CONTINUAR, alCambiar);
     return () => window.removeEventListener(EVENTO_CONTINUAR, alCambiar);
   }, []);
-  const [aleatorio, setAleatorio] = useState(() => restaurarSesion()?.aleatorio ?? true);
+  const [aleatorio, fijarAleatorio] = useState(() => aleatorioRestaurado(restaurarSesion()));
+  // «Aleatorio» y «Repetir» se excluyen en toda la app: cualquier camino que encienda el aleatorio
+  // pasa por aquí, también el escritorio, que recibe este mismo `setAleatorio`.
+  const setAleatorio = useCallback((valor) => {
+    fijarAleatorio(valor);
+    setRepetir((actual) => repetirSegunAleatorio(valor, actual));
+  }, []);
   const [busqueda, setBusqueda] = useState('');
   const [modoBuscador, setModoBuscador] = useState('texto');
   // Bug reportado: navegar a Home/otra sección dejaba el texto pegado en la
@@ -207,6 +167,7 @@ export default function App() {
   // local, entrar de nuevo a la misma vista no reiniciaba la pestaña.
   const [tabConfiguracion, setTabConfiguracion] = useState('modos');
   const [historial, setHistorial] = useState([]);
+  const [historialListo, setHistorialListo] = useState(false);
   // Aleatorio con memoria: lo que lleva más tiempo sin sonar sale antes (ver movil/barajar.js).
   const historialRef = useRef(historial);
   historialRef.current = historial;
@@ -390,7 +351,17 @@ export default function App() {
   const [overrides, setOverrides] = useState({});
   const [favoritos, setFavoritos] = useState({ artistas: [], albumes: [] });
   // «No me gusta» (móvil): canciones y artistas que no se recomiendan.
-  const { marcas: noMeGusta, marcar: marcarNoMeGusta, quitar: quitarNoMeGusta } = useNoMeGusta();
+  const { marcas: noMeGusta, marcar: marcarNoMeGusta, quitar: quitarMarcaNoMeGusta } = useNoMeGusta();
+  const indiceRef = useRef(indice);
+  indiceRef.current = indice;
+  // Saltos rápidos: tres seguidos a la misma canción la pasan a «No me gusta». Las funciones se
+  // leen al llamar (alternarFavorito y quitarDeColaFutura se definen más abajo).
+  const saltos = useSaltos({
+    marcas: noMeGusta,
+    marcar: marcarNoMeGusta,
+    alternarFavorito: (id, activo) => alternarFavorito(id, activo),
+    quitarDeColaFutura: (t) => quitarDeColaFutura(t),
+  });
 
   // El primer track de una sesión restaurada arranca CARGADO pero en pausa,
   // en el segundo exacto donde quedó — nunca arrancando a sonar solo. Es la
@@ -436,13 +407,17 @@ export default function App() {
     alternarSilencio,
     recrearPlayer,
     precargarSiguientes,
+    anticiparCola, // solo Android nativo
+    senalDebil, // solo Android nativo; undefined en web/iframe
+    arranque, // solo Android nativo: si la canción pedida aún no suena o no pudo arrancar
+    pistaRespaldo, // guardada que suena por falta de señal {videoId, trackId} (solo Android nativo)
     sonando,
     tiempo,
     duracion,
     temporizador,
     fijarTemporizador,
   } = useReproductor(
-    () => (repetir ? reiniciar() : siguiente()),
+    () => (repetir ? reiniciarContando() : siguiente()),
     (fallo) => manejarVideoFallido(fallo),
     // Android: el reproductor nativo ya pasó solo a la pista `videoId` de su
     // cola (fin de canción o botón ⏭ con la pantalla bloqueada). Aquí solo se
@@ -452,15 +427,35 @@ export default function App() {
       // También lo llama el reproductor al volver a primer plano o al reabrirse el WebView, para adoptar
       // la pista que el nativo lleva (sin recargarla). Si es de la cola, la sesión restaurada ya no vale.
       const idsDe = (t) => [idReproductor(t, videoIdResueltoRef.current), idLocal(t.id)];
-      if (indiceDePista(cola, videoId, 0, idsDe) >= 0) restaurarRef.current = null;
+      const adoptada = cola[indiceDePista(cola, videoId, 0, idsDe)];
+      if (adoptada) {
+        restaurarRef.current = null;
+        registroRef.current.avanceNativo(adoptada);
+      }
       // desde el índice actual: si el evento es de la pista que ya es la actual (p. ej.
       // tras volver atrás con ⏮) el índice no debe saltar a un duplicado posterior.
       setIndice((i) => {
         const j = indiceDePista(cola, videoId, i, idsDe);
         return j >= 0 ? j : i;
       });
+    },
+    // Salto rápido, oída o reproducción anotados por el servicio nativo (el nativo ya los vació al recogerlos):
+    // se retienen hasta poder buscar la canción (biblioteca cargada, o cola restaurada) y se procesan en orden.
+    (salto) => {
+      // Las reproducciones valen en cualquier disposición: el historial no depende del ancho de pantalla.
+      if (!salto?.id || (!esMovil && salto.tipo !== 'reproduccion')) return;
+      saltosRetenidosRef.current.push(salto);
+      procesarSaltosNativos();
     }
   );
+
+  // Volver a empezar la misma canción no cambia de pista: se cuenta aquí (ver reproducciones.js).
+  const trackSonandoRef = useRef(trackActual);
+  trackSonandoRef.current = trackActual;
+  const reiniciarContando = useCallback(() => {
+    reiniciar();
+    registroRef.current.reinicio(trackSonandoRef.current);
+  }, [reiniciar]);
 
   // Candidatos alternativos del track que suena, que manda /api/resolver junto
   // con el elegido. Es un ref y no estado porque solo se lee dentro del
@@ -595,11 +590,52 @@ export default function App() {
       // nunca se vuelve a ejecutar. La cancion se queda muda al terminar.
       // reiniciar() (seekTo a 0) si dispara playback de nuevo — es el mismo
       // mecanismo que ya usa el modo "repetir", que sabemos que funciona.
-      reiniciar();
+      reiniciarContando();
       return;
     }
     setIndice((i) => (i + 1) % cola.length);
-  }, [cola.length, reiniciar]);
+  }, [cola.length, reiniciarContando]);
+
+  // Se lee al terminar la baja: `quitarTrackSuelto` es estable y no ve la cola de ese momento.
+  const trasQuitarRef = useRef(null);
+  trasQuitarRef.current = {
+    videoDe: (trackId) => {
+      const t = tracks.find((x) => x.id === trackId);
+      return t ? videoIdDeSinConexion(t) : null;
+    },
+    aplicar: (trackId, videoId) => {
+      const accion = accionAlQuitar(cola, indice, trackId, videoId);
+      if (accion === 'siguiente') siguiente();
+      else if (accion === 'parar') pausar();
+    },
+  };
+
+  const saltosRetenidosRef = useRef([]);
+  function procesarSaltosNativos() {
+    if (saltosRetenidosRef.current.length === 0) return;
+    const idsDe = (t) => [t.youtubeVideoId, videoIdResueltoRef.current.get(t.id), videoIdsCache.get(t.id), idLocal(t.id)];
+    // Las reproducciones se comparan con el historial: hasta tenerlo cargado, todo espera.
+    const { resueltos, retenidos } = resolverPendientesNativos(saltosRetenidosRef.current, { tracks, bibliotecaCargada: bibliotecaCargada && historialListo, cola, idsDe });
+    saltosRetenidosRef.current = retenidos;
+    for (const { salto, track } of resueltos) {
+      if (salto.tipo === 'reproduccion') registroRef.current.nota(track ?? trackDeNota(salto), salto.ts);
+      else if (salto.tipo === 'oida') saltos.anotarOida(track, salto.fraccion);
+      else saltos.anotarSalto(track, salto.segundos, salto.ts);
+    }
+  }
+  useEffect(() => {
+    procesarSaltosNativos();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [cola, tracks, bibliotecaCargada, historialListo]);
+
+  // «Siguiente» pulsado por el usuario (móvil): cuenta como salto si la canción sonaba de verdad
+  // (sin error ni resolución en curso). El fin de pista y «No me gusta» usan `siguiente` a secas.
+  const siguienteUsuario = () => {
+    if (cuentaComoSaltoUsuario({ esMovil, hayCancion: !!trackActual, sonando, estadoResolucion, senalDebilActivo: senalDebil?.activo, pistaRespaldo })) {
+      saltos.anotarSalto(tracks.find((x) => x.id === trackActual.id) ?? trackActual, tiempo);
+    }
+    siguiente();
+  };
 
   // Atajos de teclado para el reproductor — pedido explícito. Se ignoran
   // mientras se está escribiendo en cualquier campo (buscador, nombre de
@@ -660,35 +696,44 @@ export default function App() {
     if (!trackActual) pausar();
   }, [trackActual, pausar]);
 
-  // Registra en el historial una sola vez por track NUEVO, no cada vez que
-  // este efecto se re-ejecuta (el de resolución puede reintentar contra el
-  // mismo track sin que haya cambiado nada real — no querés un historial
-  // lleno de la misma canción diez veces por eso). El ref guarda el último
-  // id ya anotado, comparado contra trackActual en cada render.
-  const ultimoLoggeadoRef = useRef(null);
-  useEffect(() => {
-    if (!trackActual || ultimoLoggeadoRef.current === trackActual.id) return;
-    ultimoLoggeadoRef.current = trackActual.id;
-    const entrada = {
+  // Historial: una entrada por reproducción, la anote JS o el servicio nativo (ver reproducciones.js).
+  const entradaDeRef = useRef(null);
+  entradaDeRef.current = (t, ts) => {
+    const idReal = t.trackIdReal ?? t.id;
+    const { duracionMs } = metadataDe(idReal);
+    return {
       // El id real (no el "album-xxx" de mentira) — así el historial cruza
       // contra la biblioteca igual que metadata-deezer.json.
-      trackId: trackActual.trackIdReal ?? trackActual.id,
+      trackId: idReal,
       // En una radio de modo el origen no tiene id propio: se apunta al modo para las estadísticas.
       ejeId: ejeActivo?.id ?? ejeActivo?.radioDe ?? null,
       ejeNombre: ejeActivo?.nombre ?? null,
-      titulo: trackActual.titulo,
-      artista: trackActual.artista,
+      titulo: t.titulo,
+      artista: t.artista,
+      // Lo que no está en la biblioteca solo se puede volver a oír y mostrar con esto.
+      ...(t.youtubeVideoId ? { videoId: t.youtubeVideoId } : {}),
+      ...(t.coverUrl ? { coverUrl: t.coverUrl } : {}),
       // Duración (s) si ya se conoce: la usan las estadísticas de tiempo escuchado.
-      ...(metadataDe(trackActual.trackIdReal ?? trackActual.id).duracionMs
-        ? { duracionS: Math.round(metadataDe(trackActual.trackIdReal ?? trackActual.id).duracionMs / 1000) }
-        : {}),
-      ts: Date.now(),
+      ...(duracionMs ? { duracionS: Math.round(duracionMs / 1000) } : {}),
+      ts,
     };
-    // Optimista: se ve al toque en "Recientes" sin esperar la vuelta del
-    // servidor. El POST es best-effort — si falla (offline, servidor
-    // reiniciando), no rompe la reproducción; se pierde esa entrada nomás.
-    setHistorial((actual) => [entrada, ...actual].slice(0, 10000));
-    registrarReproduccion(entrada).catch(() => {});
+  };
+  const registroRef = useRef(null);
+  registroRef.current ??= crearRegistroReproducciones({
+    ultimoId: trackActual?.id,
+    historial: () => historialRef.current,
+    entradaDe: (t, ts) => entradaDeRef.current(t, ts),
+    anotar: (entrada) => {
+      // Optimista: se ve al toque en "Recientes" sin esperar la vuelta del
+      // servidor. El POST es best-effort — si falla (offline, servidor
+      // reiniciando), no rompe la reproducción; se pierde esa entrada nomás.
+      historialRef.current = unirAlHistorial(historialRef.current, [entrada]);
+      setHistorial((actual) => unirAlHistorial(actual, [entrada]));
+      registrarReproduccion(entrada).catch(() => {});
+    },
+  });
+  useEffect(() => {
+    registroRef.current.cambio(trackActual);
   }, [trackActual, ejeActivo]);
 
   // Uso para alimentar estados: de lo que suena desde un chip de «¿Cómo te sientes?» (ejeActivo.estadoId) se
@@ -705,6 +750,26 @@ export default function App() {
   useEffect(() => {
     seguimientoUsoRef.current.tiempo(tiempo, duracion);
   }, [tiempo, duracion]);
+
+  // Saltos rápidos (móvil): oír más del 70 % de una canción pone a cero su contador. Segunda instancia
+  // con `estadoId` fijo, para medir toda canción y no solo las puestas desde un chip.
+  const seguimientoSaltosRef = useRef(null);
+  const ultimoSaltosRef = useRef({});
+  ultimoSaltosRef.current = { tracks, saltos }; // la instancia se crea una vez: lee siempre lo último
+  seguimientoSaltosRef.current ??= crearSeguimientoUso({
+    alCerrar: (trackId, _estadoId, fraccion) => {
+      const { tracks: todos, saltos: s } = ultimoSaltosRef.current;
+      const t = todos.find((x) => (x.trackIdReal ?? x.id) === trackId || x.id === trackId);
+      if (t) s.anotarOida(t, fraccion);
+    },
+  });
+  useEffect(() => {
+    if (!esMovil) return;
+    seguimientoSaltosRef.current.cambio(trackActual ? (trackActual.trackIdReal ?? trackActual.id) : null, 'saltos');
+  }, [trackActual, esMovil]);
+  useEffect(() => {
+    if (esMovil) seguimientoSaltosRef.current.tiempo(tiempo, duracion);
+  }, [tiempo, duracion, esMovil]);
 
   // Cuenta de tracks por eje. Un track puede estar en varios ejes.
   const conteos = useMemo(() => {
@@ -752,7 +817,6 @@ export default function App() {
   const sinConexion = useSinConexion();
   const { hayRed } = sinConexion;
   const [idsLocales, setIdsLocales] = useState(() => new Set());
-  const [historialListo, setHistorialListo] = useState(false);
   const [ajustesSinConexion, setAjustesSinConexion] = useState(0);
   const [cambiosArchivosLocales, setCambiosArchivosLocales] = useState(0);
   const colaAntesDeSinRedRef = useRef(null);
@@ -764,6 +828,17 @@ export default function App() {
     (t) => t.youtubeVideoId ?? videoIdResueltoRef.current.get(t.id) ?? videoIdsCache.get(t.id) ?? null,
     [videoIdsCache]
   );
+  // La guardada que suena sin señal, como track de la biblioteca (por trackId o, si el WebView se recreó, por videoId).
+  const buscarTrackRespaldo = (pista) =>
+    (pista?.trackId && tracks.find((x) => x.id === pista.trackId)) ||
+    (pista?.videoId && tracks.find((x) => videoIdDeSinConexion(x) === pista.videoId)) ||
+    null;
+  const trackRespaldo = useMemo(
+    () => (pistaRespaldo ? buscarTrackRespaldo(pistaRespaldo) : null),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [pistaRespaldo, tracks]
+  );
+
   // Con red no se filtra nada (mismas referencias que sin esta función).
   const guardadosFiltro = hayRed ? null : sinConexion.guardados;
   const disponibleSinRed = useCallback(
@@ -906,6 +981,11 @@ export default function App() {
     return s;
   }, [tracksVisibles]);
 
+  const esDeArtista = (t, nombre) => {
+    const clave = nombre.trim().toLowerCase();
+    return separarArtistas(t.artista, artistasSolos).some((n) => n.toLowerCase() === clave);
+  };
+
   // Cada artista de una colaboración cuenta para sí mismo, no solo el string
   // completo del crédito — ver separarArtistas. Se calcula una sola vez acá
   // y lo usan tanto el bloque "Por artistas" del Home como la pestaña
@@ -1000,8 +1080,24 @@ export default function App() {
       .catch(() => {});
   }, []);
 
+  // Fotos de artista confirmadas por /api/artista (búsqueda directa por
+  // artista, desempatada por fans) — más confiables que la que trae
+  // metadata-deezer.json (pegada a la búsqueda de un track puntual, ver
+  // fotoDeArtista más abajo). Arranca con lo que ya se visitó alguna vez;
+  // abrirArtista() suma la del artista actual apenas la consigue, sin
+  // esperar a un refresh.
+  const [fotosArtistasConfirmadas, setFotosArtistasConfirmadas] = useState({});
+  const refrescarFotosArtistas = useCallback(() => {
+    obtenerArtistasFotos()
+      .then((j) => setFotosArtistasConfirmadas(j.fotos ?? {}))
+      .catch(() => {});
+  }, []);
+  useEffect(() => {
+    refrescarFotosArtistas();
+  }, [refrescarFotosArtistas]);
+
   // Móvil: importar por enlace y organizar en modos en segundo plano.
-  const importacion = useImportarOrganizar({ activo: MODO_LOCAL, setTracks, setEjes, refrescarMetadata });
+  const importacion = useImportarOrganizar({ activo: MODO_LOCAL, setTracks, setEjes, refrescarMetadata, refrescarFotosArtistas });
 
   const refrescarOverrides = useCallback(() => {
     obtenerOverrides()
@@ -1101,21 +1197,42 @@ export default function App() {
     guardarFavoritoAlbum(artista, titulo, activo).catch(() => {});
   }, []);
 
-  // Fotos de artista confirmadas por /api/artista (búsqueda directa por
-  // artista, desempatada por fans) — más confiables que la que trae
-  // metadata-deezer.json (pegada a la búsqueda de un track puntual, ver
-  // fotoDeArtista más abajo). Arranca con lo que ya se visitó alguna vez;
-  // abrirArtista() suma la del artista actual apenas la consigue, sin
-  // esperar a un refresh.
-  const [fotosArtistasConfirmadas, setFotosArtistasConfirmadas] = useState({});
-  useEffect(() => {
-    obtenerArtistasFotos()
-      .then((j) => setFotosArtistasConfirmadas(j.fotos ?? {}))
-      .catch(() => {});
-  }, []);
-
   // Álbum/año: la corrección manual pisa el dato de MusicBrainz, nunca al
   // revés — es la señal más confiable que hay (la puso el usuario a mano).
+  // Portada de respaldo para las canciones sin carátula en la metadata (añadidas desde la búsqueda, entradas
+  // del historial, vistas previas): la que trae la propia canción o, como la pantalla de bloqueo, la miniatura
+  // del vídeo de YouTube que suena. Se lee por ref para que `metadataDe` no cambie con cada vídeo resuelto.
+  const videoIdsCacheRef = useRef(videoIdsCache);
+  videoIdsCacheRef.current = videoIdsCache;
+  // En el PC la caché de vídeos vive en el servidor: llega con /api/metadata (`videoIds`) para que las canciones
+  // sin carátula tengan la miniatura del vídeo como portada (el móvil la lee de su propia base de datos).
+  const videoIdsPcRef = useRef({});
+  videoIdsPcRef.current = metadataMB.videoIds ?? {};
+  // Índice id → canción (se reconstruye solo si cambia la biblioteca): `metadataDe` se llama por cada fila de las listas.
+  const tracksPorIdRef = useRef({ de: null, mapa: new Map() });
+  const trackPorId = (trackId) => {
+    if (tracksPorIdRef.current.de !== tracksRef.current) {
+      const mapa = new Map();
+      for (const x of tracksRef.current) {
+        mapa.set(x.id, x);
+        if (x.trackIdReal) mapa.set(x.trackIdReal, x);
+      }
+      tracksPorIdRef.current = { de: tracksRef.current, mapa };
+    }
+    return tracksPorIdRef.current.mapa.get(trackId);
+  };
+  const miniaturaVideoDe = (trackId) => {
+    if (typeof trackId !== 'string') return null;
+    const tr = trackPorId(trackId);
+    const vid =
+      tr?.youtubeVideoId ?? videoIdResueltoRef.current.get(trackId) ?? videoIdsCacheRef.current.get(trackId) ?? videoIdsPcRef.current[trackId] ?? (trackId.startsWith('preview-') ? trackId.slice('preview-'.length) : null);
+    return typeof vid === 'string' && /^[A-Za-z0-9_-]{11}$/.test(vid) ? `https://i.ytimg.com/vi/${vid}/hqdefault.jpg` : null;
+  };
+  const portadaRespaldoDe = (trackId) => {
+    const tr = typeof trackId === 'string' ? trackPorId(trackId) : null;
+    if (typeof tr?.coverUrl === 'string' && tr.coverUrl.startsWith('http')) return tr.coverUrl;
+    return miniaturaVideoDe(trackId);
+  };
   const metadataDe = useCallback(
     (trackId) => {
       const t = metadataMB.tracks[trackId];
@@ -1126,11 +1243,18 @@ export default function App() {
         anio: ov?.anio ?? t?.anio ?? null,
         duracionMs: t?.duracionMs ?? null,
         generos: artista?.generos ?? [],
-        coverUrl: t?.coverUrl ?? null,
+        coverUrl: (() => {
+          const url = typeof t?.coverUrl === 'string' && t.coverUrl.startsWith('http') ? t.coverUrl : portadaRespaldoDe(trackId);
+          registrarRespaldo(url, miniaturaVideoDe(trackId)); // cualquier pantalla que dibuje esta carátula caerá a la miniatura si falla
+          return url;
+        })(),
+        // Miniatura del vídeo: respaldo si la carátula no carga en la pantalla (p. ej. direcciones de YouTube Music).
+        coverRespaldo: miniaturaVideoDe(trackId),
         fotoArtista: t?.fotoArtista ?? null,
       };
     },
-    [metadataMB, overrides]
+    // videoIdsCache: la miniatura del vídeo depende de ella y llega después (sin esto se quedaba sin respaldo).
+    [metadataMB, overrides, videoIdsCache]
   );
 
   // Tinte del reproductor (C1-C2): color vivo de la portada que suena, mezclado
@@ -1163,28 +1287,9 @@ export default function App() {
   // entidad "álbum" guardada: se arma agrupando los tracks que YA tienen
   // álbum resuelto (metadataDe), lo mismo que ya hace VistaAlbum para saber
   // cuántos tracks del álbum real están en tu biblioteca.
-  const albumesBiblioteca = useMemo(() => {
-    const porClave = new Map();
-    tracksVisibles.forEach((t, indice) => {
-      const meta = metadataDe(t.id);
-      if (!meta.album) return;
-      const clave = `${t.artista.toLowerCase()}||${meta.album.toLowerCase()}`;
-      const entrada = porClave.get(clave) ?? {
-        titulo: meta.album,
-        artista: t.artista,
-        anio: meta.anio,
-        coverUrl: meta.coverUrl,
-        cantidad: 0,
-        indice,
-      };
-      entrada.cantidad += 1;
-      entrada.indice = Math.max(entrada.indice, indice);
-      if (!entrada.anio && meta.anio) entrada.anio = meta.anio;
-      if (!entrada.coverUrl && meta.coverUrl) entrada.coverUrl = meta.coverUrl;
-      porClave.set(clave, entrada);
-    });
-    return [...porClave.values()].sort((a, b) => a.titulo.localeCompare(b.titulo, 'es'));
-  }, [tracksVisibles, metadataDe]);
+  // Cada álbum lleva todas sus portadas posibles en orden (carátula de cualquier pista, la del mismo álbum
+  // de otro intérprete, miniatura del vídeo, foto del artista): ver src/movil/portadaAlbum.js.
+  const albumesBiblioteca = useMemo(() => armarAlbumes(tracksVisibles, metadataDe), [tracksVisibles, metadataDe]);
 
   // Cantidad de álbumes por artista, para "Por artistas" del sidebar — solo
   // "N canciones" se sentía corto de contenido con la tarjeta chica. Ignora
@@ -1286,12 +1391,29 @@ export default function App() {
   // "artista + título" de un track puntual, menos confiable: puede traer el
   // artista de otro resultado, o directamente null aunque el artista real sí
   // tenga foto en Deezer — el caso reportado con Soda Stereo).
+  // nombre en minúsculas → primera foto válida de sus canciones (se construye una vez, no por llamada).
+  const fotosArtistaDeMetadata = useMemo(() => {
+    const mapa = new Map();
+    // La foto de un track es la de su artista PRINCIPAL (el primero del crédito): en «Sean Paul · Dua Lipa»
+    // es la de Sean Paul. Se asigna solo a ese nombre, y las canciones de un solo artista mandan.
+    const pasadas = [true, false];
+    for (const soloUnArtista of pasadas) {
+      for (const track of tracks) {
+        const foto = metadataDe(track.id).fotoArtista;
+        if (!fotoEsValida(foto)) continue;
+        const nombres = separarArtistas(track.artista, artistasSolos);
+        if ((nombres.length === 1) !== soloUnArtista) continue;
+        const clave = nombres[0]?.toLowerCase();
+        if (clave && !mapa.has(clave)) mapa.set(clave, foto);
+      }
+    }
+    return mapa;
+  }, [tracks, artistasSolos, metadataDe]);
+
   function fotoDeArtista(nombre) {
     const clave = nombre.toLowerCase();
     if (fotoEsValida(fotosArtistasConfirmadas[clave])) return fotosArtistasConfirmadas[clave];
-    const track = tracks.find((t) => separarArtistas(t.artista, artistasSolos).some((n) => n.toLowerCase() === clave));
-    const foto = track ? metadataDe(track.id).fotoArtista : null;
-    return fotoEsValida(foto) ? foto : null;
+    return fotosArtistaDeMetadata.get(clave) ?? null;
   }
 
   // Título/artista corregidos a mano. Se aplican en `tracksVisibles` (más
@@ -1318,11 +1440,12 @@ export default function App() {
   // clasifica y cachea su videoId (ya se conoce, viene de la búsqueda) — acá
   // solo hace falta reflejarlo en `tracks` para que aparezca YA en Home,
   // "Para clasificar", el buscador interno, etc., sin esperar un refresh.
-  const agregarTrackExterno = useCallback(async ({ titulo, artista, videoId }) => {
-    const r = await agregarTrackApi({ titulo, artista, videoId });
+  const agregarTrackExterno = useCallback(async ({ titulo, artista, videoId, coverUrl }) => {
+    const r = await agregarTrackApi({ titulo, artista, videoId, coverUrl });
     const json = await r.json().catch(() => ({}));
     if (!r.ok) throw new Error(json.error ?? `HTTP ${r.status}`);
-    if (!json.yaExistia) {
+    if (json.yaExistia) refrescarMetadata();
+    else {
       setTracks((ts) => [...ts, json.track]);
       // El servidor ya enriqueció portada/álbum al agregarlo (ver
       // enriquecerTrackDeezerUno en vite.config.js) — sin este refetch, la
@@ -1512,7 +1635,8 @@ export default function App() {
   // se reproducen con su objeto real (historial, cola editable, todo normal);
   // los que no, con un track "de mentira" igual que la vista previa del
   // buscador externo — se resuelven a YouTube solos la primera vez que suenan.
-  function reproducirAlbum(desdeIndice = 0) {
+  // `desdeIndice`: la fila tocada. Sin él es «Reproducir» (todo el álbum): suena sin lo marcado en «No me gusta».
+  function reproducirAlbum(desdeIndice) {
     if (!album?.tracks) return;
     const porId = new Map(tracks.map((t) => [t.id, t]));
     const cola = album.tracks.map((t) => {
@@ -1537,30 +1661,16 @@ export default function App() {
     // Sin navegar: se sigue viendo el álbum mientras suena, la barra de
     // reproducción (global) se hace cargo — mismo criterio que "Para
     // clasificar" (ver reproducirSinNavegar).
-    reproducirSinNavegar(cola[desdeIndice], cola, album.titulo);
+    reproducirSinNavegar(cola[desdeIndice] ?? null, cola, album.titulo);
   }
 
   // Mismo patrón que reproducirAlbum: mezcla tracks reales (ya en biblioteca)
   // con "de mentira" para las canciones populares del artista que todavía no
   // se agregaron — se resuelven solas a YouTube la primera vez que suenan.
-  function reproducirCancionesArtista(desdeIndice = 0) {
+  function reproducirCancionesArtista(desdeIndice) {
     if (!artista?.canciones) return;
-    const porId = new Map(tracks.map((t) => [t.id, t]));
-    const cola = artista.canciones.map((c) => {
-      const real = porId.get(c.trackId);
-      if (real) return real;
-      return {
-        id: `album-${c.trackId}`,
-        trackIdReal: c.trackId,
-        artista: c.artista,
-        titulo: c.titulo,
-        fuentes: ['album'],
-        youtubeQuery: `${c.artista} ${c.titulo}`,
-        youtubeVideoId: null,
-        ejes: [],
-      };
-    });
-    reproducirSinNavegar(cola[desdeIndice], cola, artista.nombre);
+    const cola = pistasDePopulares(artista.canciones, tracks);
+    reproducirSinNavegar(cola[desdeIndice] ?? null, cola, artista.nombre);
   }
 
   // Agrega TODO el álbum a la biblioteca (lo que falte), con la misma
@@ -1603,6 +1713,7 @@ export default function App() {
   // completo, no de un modo/lista puntual — "－" simétrico al "＋" en las
   // filas de álbum/artista.
   const quitarTrackSuelto = useCallback(async (trackId) => {
+    const videoId = trasQuitarRef.current.videoDe(trackId); // después de la baja ya no se puede saber
     const r = await quitarTrack(trackId);
     const json = await r.json().catch(() => ({}));
     if (!r.ok) throw new Error(json.error ?? `HTTP ${r.status}`);
@@ -1610,6 +1721,7 @@ export default function App() {
     if (json.ejesEliminados?.length > 0) {
       setEjes((es) => es.filter((e) => !json.ejesEliminados.includes(e.nombre)));
     }
+    trasQuitarRef.current.aplicar(trackId, videoId);
     return json;
   }, []);
 
@@ -1649,17 +1761,7 @@ export default function App() {
     function guardar() {
       const s = estadoSesionRef.current;
       if (s.cola.length === 0) return;
-      guardarSesion({
-        colaIds: s.cola.map((t) => t.id),
-        trackActualId: s.trackActual?.id ?? null,
-        ejeActivoId: s.ejeActivo?.id ?? null,
-        ejeActivoNombre: s.ejeActivo?.nombre ?? null,
-        ejeVistaId: s.ejeVista?.id ?? null,
-        ejeVistaNombre: s.ejeVista?.nombre ?? null,
-        tiempo: s.tiempo,
-        aleatorio: s.aleatorio,
-        repetir: s.repetir,
-      });
+      guardarSesion(datosSesion(s, idEnBiblioteca));
     }
     function alOcultar() {
       if (document.hidden) guardar();
@@ -1679,17 +1781,12 @@ export default function App() {
   // tiempo dentro del MISMO track.
   useEffect(() => {
     if (cola.length === 0) return;
-    guardarSesion({
-      colaIds: cola.map((t) => t.id),
-      trackActualId: trackActual?.id ?? null,
-      ejeActivoId: ejeActivo?.id ?? null,
-      ejeActivoNombre: ejeActivo?.nombre ?? null,
-      ejeVistaId: ejeVista?.id ?? null,
-      ejeVistaNombre: ejeVista?.nombre ?? null,
-      tiempo: estadoSesionRef.current.tiempo,
-      aleatorio,
-      repetir,
-    });
+    guardarSesion(
+      datosSesion(
+        { cola, trackActual, ejeActivo, ejeVista, tiempo: estadoSesionRef.current.tiempo, aleatorio, repetir },
+        idEnBiblioteca
+      )
+    );
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [cola, trackActual, ejeActivo, ejeVista, aleatorio, repetir]);
 
@@ -1725,12 +1822,15 @@ export default function App() {
   // la está cambiando, para no depender de que el estado ya se haya
   // actualizado en este mismo render.
   function reproducirModo(eje, lista, trackInicial, forzarAleatorio) {
+    lista = reproduciblesSinMarcas(lista, noMeGusta, trackInicial);
     if (lista.length === 0) {
       if (esMovil) setAvisoSalto(avisoModo(eje?.nombre ?? 'Este modo', 0, false));
       return;
     }
     registrarModoEscuchado(eje);
     const usarAleatorio = forzarAleatorio ?? aleatorio;
+    // Barajar aquí no enciende el botón de aleatorio, pero la regla con «Repetir» vale igual.
+    setRepetir((actual) => repetirSegunAleatorio(usarAleatorio, actual));
     // Móvil: arrancar un modo entero (no una canción puntual) avisa de qué suena.
     if (esMovil && !trackInicial) setAvisoSalto(avisoModo(eje?.nombre ?? 'Modo', lista.length, usarAleatorio));
     const ordenada = usarAleatorio ? barajar(lista) : lista;
@@ -1738,6 +1838,7 @@ export default function App() {
     // Reproducir es una orden explícita: si la cola nueva empieza por el
     // track que la sesión restauró en pausa, tiene que sonar igual.
     restaurarRef.current = null;
+    ordenPrevioRef.current = null;
     setEjeActivo(eje);
     setColaAuto(new Set());
     setRadioModo(null);
@@ -1769,6 +1870,12 @@ export default function App() {
     }
   }
 
+  // «Repetir» y «Aleatorio» se excluyen: encender uno apaga el otro.
+  function alternarRepetir() {
+    if (!repetir && aleatorio) alternarAleatorioCola();
+    setRepetir(!repetir);
+  }
+
   function alternarAleatorioYReproducir(eje, lista) {
     const nuevo = !aleatorio;
     setAleatorio(nuevo);
@@ -1787,6 +1894,14 @@ export default function App() {
     // Si idx === i (se quitó el track actual), el índice numérico queda
     // igual pero el array se corrió: ahora apunta al que era el siguiente.
     // Es el comportamiento esperado, no un bug — "quitar lo que suena" avanza.
+  }
+
+  // Quita de lo que viene DESPUÉS de la que suena todas las copias de `track` (por artista y título).
+  // La actual y lo ya sonado no se tocan, así `indice` sigue apuntando a la misma canción.
+  function quitarDeColaFutura(track) {
+    // `track` puede ser una canción o una entrada de «No me gusta» (p. ej. la de un artista).
+    const entrada = track.tipo ? track : entradaCancion(track);
+    setCola((c) => c.filter((t, i) => i <= indiceRef.current || !coincideEntrada(t, entrada)));
   }
 
   // Sacar e insertar (no swap): el origen puede terminar en cualquier
@@ -1849,6 +1964,40 @@ export default function App() {
     (trackId, activo) => alternarColeccion(trackId, 'favoritos', activo),
     [alternarColeccion]
   );
+
+  // La copia de la biblioteca de la canción que suena. Si es de fuera (aleatorio de artista, vista previa,
+  // radio…) la guarda antes, con su título, artista y portada; si ya estaba (por id, vídeo o título) devuelve
+  // esa, sin duplicarla. Lo usan el reproductor (añadir a lista/mood/biblioteca) y el corazón del bloqueo.
+  const asegurarEnBiblioteca = useCallback(async (t) => {
+    const ya = buscarEnBiblioteca(t, tracksRef.current, videoIdDeSinConexion);
+    if (ya) return ya;
+    const json = await agregarTrackExterno({
+      titulo: t.titulo,
+      artista: t.artista,
+      videoId: t.youtubeVideoId ?? videoIdResueltoRef.current.get(t.id) ?? null,
+      coverUrl: metadataDe(t.trackIdReal ?? t.id)?.coverUrl ?? t.coverUrl ?? null,
+    });
+    return json.track;
+  }, [agregarTrackExterno, metadataDe, videoIdDeSinConexion]);
+
+  // Corazón de la canción que suena desde fuera de la app (bloqueo, miniatura): antes fallaba en silencio
+  // con las canciones que no están en la biblioteca.
+  const alternarFavoritoDeLaQueSuena = useCallback(async (t) => {
+    try {
+      const real = await asegurarEnBiblioteca(t);
+      await alternarFavorito(real.id, !real.ejes?.some((e) => e.ejeId === 'favoritos'));
+    } catch {
+      setAvisoSalto('No se pudo guardar en Favoritas');
+    }
+  }, [asegurarEnBiblioteca, alternarFavorito]);
+
+  // Quitar una marca de «No me gusta»; si la puso un salto repetido sobre una favorita, devuelve el corazón.
+  const quitarNoMeGusta = useCallback((tipo, clave) => {
+    const previa = quitarMarcaNoMeGusta(tipo, clave);
+    if (previa?.eraFavorita && previa.trackId) {
+      Promise.resolve(alternarFavorito(previa.trackId, true)).catch(() => {}); // si ya no está en la biblioteca, no pasa nada
+    }
+  }, [quitarMarcaNoMeGusta, alternarFavorito]);
 
   // Guardado con rollback: si el servidor rechaza (ver validarEjes en
   // vite.config.js), la UI vuelve al estado anterior en vez de quedar
@@ -1939,11 +2088,34 @@ export default function App() {
   // como "eje" sintético (sin id real) solo para mostrar de dónde salió
   // esta cola. Quien llama decide la etiqueta porque solo el llamador sabe
   // el contexto (qué se buscó, qué artista, etc).
+  // Tras fallar la búsqueda no hay audio de esta canción: ▶ reintenta en vez de reanudar la anterior.
+  function alternarPausaUsuario() {
+    if (['error_red', 'error', 'youtube_error'].includes(estadoResolucion)) setReintentoResolucion((n) => n + 1);
+    else alternarPausa();
+  }
+
+  // Lo que sonaba antes de cargar otra lista: ⏮ en la primera canción vuelve ahí.
+  const colaPreviaRef = useRef(null);
+  function anteriorUsuario() {
+    if (indice > 0) {
+      setIndice(indice - 1);
+      return;
+    }
+    const previa = colaPreviaRef.current;
+    if (!previa) return;
+    colaPreviaRef.current = null;
+    setEjeActivo(previa.eje);
+    setCola(previa.cola);
+    setIndice(previa.indice);
+  }
+
   function cargarCola(track, resultados, etiqueta, origenExtra = null) {
+    if (trackActual) colaPreviaRef.current = { cola, indice, eje: ejeActivo };
     // Sin modo real de por medio: la cola ES la vista, no hay nada más para
     // "mirar" aparte — por eso limpia ejeVista en vez de fijarlo.
     setEjeVista(null);
     restaurarRef.current = null; // ver reproducirModo
+    ordenPrevioRef.current = null;
     setEjeActivo({ nombre: etiqueta, ...origenExtra });
     setColaAuto(new Set());
     setRadioModo(null);
@@ -1966,7 +2138,7 @@ export default function App() {
     if (!videoId) {
       // Aún no se resolvió (la canción acaba de empezar): se resuelve aquí en vez de pedir esperar.
       try {
-        videoId = (await resolverVideoId(semilla.youtubeQuery, semilla.id)).videoId;
+        videoId = (await resolverVideoId(semilla.youtubeQuery, semilla.id, semilla)).videoId;
       } catch {
         videoId = null;
       }
@@ -2076,8 +2248,15 @@ export default function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [continuar, repetir, cola, indice, radioModo, noMeGusta]);
 
-  function reproducirLista(track, resultados, etiqueta) {
-    cargarCola(track, resultados, etiqueta);
+  // `track` es la fila tocada: suena aunque esté marcada. Sin él, la lista se filtra entera y empieza por la primera que quede.
+  function reproducirLista(track, resultados, etiqueta, { aleatorio: conAleatorio = false } = {}) {
+    const lista = reproduciblesSinMarcas(resultados, noMeGusta, track);
+    if (!lista?.length) {
+      if (esMovil) setAvisoSalto(avisoModo(etiqueta, 0, false));
+      return;
+    }
+    if (conAleatorio) setAleatorio(true);
+    cargarCola(track ?? lista[0], lista, etiqueta);
     setVista('reproductor');
   }
 
@@ -2087,7 +2266,32 @@ export default function App() {
   function reproducirSecuencia(lista, etiqueta, { aleatorio: conAleatorio = false, estadoId = null } = {}) {
     if (!lista?.length) return;
     setAleatorio(conAleatorio);
-    reproducirSinNavegar(lista[0], lista, etiqueta, estadoId ? { estadoId } : null);
+    // Nadie tocó una canción concreta: lo marcado no se conserva como primera.
+    const limpia = reproduciblesSinMarcas(lista, noMeGusta, null);
+    reproducirSinNavegar(limpia[0], limpia, etiqueta, estadoId ? { estadoId } : null);
+  }
+
+  // Aleatorio de un artista: suena ya lo que se conoce y `cargarResto` trae el resto de su
+  // discografía, que entra detrás de la que suena. `origenArtista` queda en `ejeActivo` para marcar
+  // el botón; si la cola cambió mientras se cargaba, lo que llegue se descarta.
+  const tandaArtistaRef = useRef(0);
+  async function reproducirAleatorioArtista(lista, etiqueta, origenArtista, cargarResto) {
+    const tanda = ++tandaArtistaRef.current;
+    const limpia = reproduciblesSinMarcas(lista, noMeGusta, null);
+    const barajada = barajar(limpia);
+    setAleatorio(true);
+    reproducirSinNavegar(barajada[0], barajada, etiqueta, { origenArtista });
+    ordenPrevioRef.current = limpia; // para volver a este orden si se quita el aleatorio
+    const resto = await cargarResto().catch(() => []);
+    if (tanda !== tandaArtistaRef.current || ejeActivoRef.current?.origenArtista !== origenArtista) return;
+    const nuevas = nuevasParaCola(colaRef.current, filtrarNoMeGusta(resto, noMeGusta));
+    if (nuevas.length === 0) return;
+    if (ordenPrevioRef.current) {
+      ordenPrevioRef.current = [...ordenPrevioRef.current, ...nuevas];
+      setCola((c) => barajarConNuevas(c, indiceRef.current, nuevas, barajar));
+    } else {
+      setCola((c) => [...c, ...nuevas]); // quitaron el aleatorio mientras cargaba
+    }
   }
 
   // Para "Para clasificar": tiene que poder sonar SIN sacar al usuario de la
@@ -2095,7 +2299,12 @@ export default function App() {
   // de reproducción es global — no hace falta estar en la vista Reproductor
   // para que suene y se controle desde ahí.
   function reproducirSinNavegar(track, resultados, etiqueta, origenExtra = null) {
-    cargarCola(track, resultados, etiqueta, origenExtra);
+    resultados = reproduciblesSinMarcas(resultados, noMeGusta, track);
+    if (!resultados?.length) {
+      if (esMovil) setAvisoSalto(avisoModo(etiqueta, 0, false));
+      return;
+    }
+    cargarCola(track ?? resultados[0], resultados, etiqueta, origenExtra);
   }
 
   // "Infinito" del Home: arranca una reproducción aleatoria de TODA la
@@ -2130,14 +2339,15 @@ export default function App() {
   // quedar mostrando "Play" mientras en realidad suena mezclado.
   function reproducirFavoritas() {
     const lista = favoritosEje ? tracksDe(favoritosEje.id) : [];
-    if (lista.length === 0) {
+    const reproducibles = reproduciblesSinMarcas(lista, noMeGusta, null);
+    if (reproducibles.length === 0) {
       if (esMovil) setAvisoSalto(avisoFavoritas(0));
       return;
     }
     entrarAModo(favoritosEje);
     setAleatorio(true);
     reproducirModo(favoritosEje, lista, null, true);
-    if (esMovil) setAvisoSalto(avisoFavoritas(lista.length)); // pisa el genérico de reproducirModo
+    if (esMovil) setAvisoSalto(avisoFavoritas(reproducibles.length)); // pisa el genérico de reproducirModo
   }
 
   /**
@@ -2207,7 +2417,7 @@ export default function App() {
       track.youtubeVideoId = null;
       videoIdResueltoRef.current.delete(track.id);
       try {
-        const json = await resolverVideoId(track.youtubeQuery, track.id);
+        const json = await resolverVideoId(track.youtubeQuery, track.id, track);
         // Si el usuario ya se movió a otro track, este resultado es viejo.
         if (trackActual?.id !== track.id) return;
         if (json.videoId) {
@@ -2298,9 +2508,12 @@ export default function App() {
         reproducir(yaResuelto, { ...opciones, trackId: trackActual.id });
         return;
       }
+      // La pantalla ya muestra esta canción: la anterior no puede seguir sonando mientras se busca
+      // ni si la búsqueda falla.
+      pausar();
       setEstadoResolucion('buscando');
       try {
-        const json = await resolverVideoId(trackActual.youtubeQuery, trackActual.id);
+        const json = await resolverVideoId(trackActual.youtubeQuery, trackActual.id, trackActual);
         if (cancelado) return;
         if (json.videoId) {
           // Mutación directa a propósito, no setTracks: este objeto es el mismo
@@ -2375,7 +2588,7 @@ export default function App() {
     return () => {
       cancelado = true;
     };
-  }, [trackActual, reproducir, cola.length, siguiente, reintentoResolucion]);
+  }, [trackActual, reproducir, pausar, cola.length, siguiente, reintentoResolucion]);
 
   // Android: «repetir» se delega al player nativo (repeat-one), porque con la
   // cola precargada ExoPlayer no emite "terminado" y reiniciar() no llegaría.
@@ -2403,6 +2616,8 @@ export default function App() {
   // Es un ref a función para que el efecto de resolución pueda llamarla justo
   // tras reproducir() sin ponerla en sus dependencias.
   const PISTAS_POR_DELANTE = 25;
+  // Las que ya tienen vídeo no cuestan búsquedas: el nativo recibe unas 5 h para seguir solo con JS dormido.
+  const PISTAS_CONOCIDAS = 100;
   const generacionPrecargaRef = useRef(0);
   const precargarColaRef = useRef(null);
   precargarColaRef.current = async () => {
@@ -2423,7 +2638,7 @@ export default function App() {
       let videoId = hayLocal ? idLocal(t.id) : idReproductor(t, videoIdResueltoRef.current);
       if (!videoId && buscar) {
         try {
-          videoId = (await resolverVideoId(t.youtubeQuery, t.id)).videoId;
+          videoId = (await resolverVideoId(t.youtubeQuery, t.id, t)).videoId;
         } catch {
           videoId = null;
         }
@@ -2443,8 +2658,9 @@ export default function App() {
         encadenada,
         videoId,
         trackId: t.id,
-        titulo: formatearTitulo(t.titulo),
-        artista: formatearTitulo(t.artista),
+        // El texto que verá el bloqueo si el nativo pasa solo a esta pista: el mismo que publica App.
+        titulo: formatearTitulo(separarInvitados(t).titulo),
+        artista: formatearTitulo(separarInvitados(t).artista),
         portadaUrl: typeof cover === 'string' && cover.startsWith('http') ? cover : null,
       };
     };
@@ -2457,21 +2673,55 @@ export default function App() {
       if (pasada === undefined) return;
       if (pasada) anteriores.push(pasada);
     }
+    // Música guardada para cuando falle la señal (metro, túnel): mismo mood, luego moods de la cola.
+    const respaldo = calcularRespaldo({
+      tracks,
+      cola,
+      ejeId: ejeActivo?.id ?? ejeActivo?.radioDe ?? null,
+      guardados: sinConexion.guardados,
+      videoIdDe: videoIdDeSinConexion,
+      recientes: historial.slice(0, 20).map((h) => h.trackId),
+    }).map((t) => {
+      const cover = metadataDe(t.trackIdReal ?? t.id)?.coverUrl ?? t.coverUrl;
+      return {
+        videoId: videoIdDeSinConexion(t),
+        trackId: t.id,
+        titulo: formatearTitulo(t.titulo),
+        artista: formatearTitulo(t.artista),
+        portadaUrl: typeof cover === 'string' && cover.startsWith('http') ? cover : null,
+      };
+    });
     const pistas = [];
     if (!repetir && n > 1) {
       // 25 por delante: las 3 primeras se resuelven a URL en JS; el resto va
       // como "pendientes" y el servicio nativo las resuelve solo si JS no
       // está (app quitada de recientes). Las 3 primeras se mandan en cuanto
       // están, sin esperar a buscar las demás.
-      for (let k = 1; k <= Math.min(PISTAS_POR_DELANTE, n - 1); k += 1) {
-        if (k === 4 && pistas.length > 0) precargarSiguientes([...pistas], actualId, anteriores);
-        const pista = await describir(cola[(indice + k) % n], cola[(indice + k - 1) % n]);
+      const total = Math.min(PISTAS_POR_DELANTE, n - 1);
+      // Antes de buscar nada, el nativo recibe las que ya tienen vídeo: si se bloquea la pantalla ahora,
+      // JS se duerme y el servicio debe saber seguir solo. Las que aparezcan buscando se le van sumando.
+      const alcance = Math.min(PISTAS_CONOCIDAS, n - 1);
+      const conocidas = new Array(alcance).fill(null);
+      for (let k = 1; k <= alcance; k += 1) {
+        const pista = await describir(cola[(indice + k) % n], cola[(indice + k - 1) % n], false);
+        if (pista === undefined) return;
+        conocidas[k - 1] = pista;
+      }
+      anticiparCola?.(conocidas.filter(Boolean), actualId);
+      for (let k = 1; k <= total; k += 1) {
+        if (k === 4 && pistas.length > 0) precargarSiguientes([...pistas], actualId, anteriores, respaldo);
+        const conocida = conocidas[k - 1];
+        const pista = conocida ?? (await describir(cola[(indice + k) % n], cola[(indice + k - 1) % n]));
         if (pista === undefined) return;
         if (pista) pistas.push(pista); // sin resolver: JS la tratará cuando le toque
+        if (pista && !conocida) {
+          conocidas[k - 1] = pista;
+          anticiparCola?.(conocidas.filter(Boolean), actualId);
+        }
       }
     }
     if (generacion !== generacionPrecargaRef.current) return;
-    precargarSiguientes(pistas, actualId, anteriores);
+    precargarSiguientes(pistas, actualId, anteriores, respaldo);
   };
   useEffect(() => {
     precargarColaRef.current?.();
@@ -2494,14 +2744,18 @@ export default function App() {
       : null;
     const progreso =
       trackActual && duracion > 0 ? Math.min(1, Math.max(0, tiempo / duracion)) : 0;
+    // Mismo texto que el reproductor de la app: los «feat.» van con el artista, no en el título.
+    const creditos = trackActual ? separarInvitados(trackActual) : null;
     const estado = {
       hayTrack: Boolean(trackActual),
-      titulo: trackActual ? formatearTitulo(trackActual.titulo) : '',
-      artista: trackActual ? formatearTitulo(trackActual.artista) : '',
+      // La pista que describe esta metadata: el nativo solo se la aplica a ella.
+      trackId: trackActual?.id ?? null,
+      titulo: creditos ? formatearTitulo(creditos.titulo) : '',
+      artista: creditos ? formatearTitulo(creditos.artista) : '',
       cover: meta?.coverUrl ?? trackActual?.coverUrl ?? null,
       sonando,
       modo,
-      favorito: Boolean(trackActual?.ejes?.some((e) => e.ejeId === 'favoritos')),
+      favorito: esFavoritaEnBiblioteca(trackActual, tracks, videoIdDeSinConexion),
       aleatorio,
       tinte: colorPortadaActual,
       progreso: Math.round(progreso * 1000) / 1000,
@@ -2515,7 +2769,7 @@ export default function App() {
     if (clave === ultimo.clave && ahora - ultimo.ts < 250) return;
     ultimoEstadoMiniRef.current = { clave, ts: ahora };
     window.musicsippi.publicarEstado(estado);
-  }, [trackActual, sonando, metadataDe, ejeActivo, tiempo, duracion, colorPortadaActual, aleatorio]);
+  }, [trackActual, tracks, videoIdDeSinConexion, sonando, metadataDe, ejeActivo, tiempo, duracion, colorPortadaActual, aleatorio]);
 
   useEffect(() => {
     if (!window.musicsippi?.alRecibirComando) return undefined;
@@ -2526,11 +2780,10 @@ export default function App() {
       if (comando === 'play-pausa') alternarPausa();
       else if (comando === 'anterior') setIndice((i) => Math.max(0, i - 1));
       else if (comando === 'siguiente') siguiente();
-      else if (comando === 'favorito' && trackActual) {
-        alternarFavorito(trackActual.id, !trackActual.ejes?.some((e) => e.ejeId === 'favoritos'));
-      } else if (comando === 'aleatorio') alternarAleatorioCola();
+      else if (comando === 'favorito' && trackActual) alternarFavoritoDeLaQueSuena(trackActual);
+      else if (comando === 'aleatorio') alternarAleatorioCola();
     });
-  }, [alternarPausa, siguiente, trackActual, alternarFavorito, alternarAleatorioCola]);
+  }, [alternarPausa, siguiente, trackActual, alternarFavoritoDeLaQueSuena, alternarAleatorioCola]);
 
   const deGusto = ejes.filter((e) => e.tipo === 'gusto' && e.activo && !e.padre && !e.sistema);
   const idsDeGusto = new Set(deGusto.map((e) => e.id));
@@ -2667,9 +2920,11 @@ export default function App() {
       tracks: tracksMovil,
       tracksTodos: tracks,
       sinConexion: { ...sinConexion, nGuardadas },
+      senalDebil,
       idsLocales,
       ejes,
       recargarDatosLocales,
+      avisoSincronizacion,
       conteos,
       tracksDe,
       metadataDe,
@@ -2678,8 +2933,8 @@ export default function App() {
       modoDestacado,
       seguidos,
       coversDeEje,
-      // reproducción
-      trackActual,
+      // reproducción (sin señal se muestra la guardada que suena, aunque no esté en la cola)
+      trackActual: trackRespaldo ?? trackActual,
       cola,
       indice,
       setIndice,
@@ -2687,21 +2942,24 @@ export default function App() {
       tiempo,
       duracion,
       ejeActivo,
-      alternarPausa,
+      alternarPausa: alternarPausaUsuario,
       siguiente,
-      anterior: () => setIndice((i) => Math.max(0, i - 1)),
+      siguienteUsuario,
+      anterior: anteriorUsuario,
       buscar,
       aleatorio,
       alternarAleatorioCola,
       repetir,
-      setRepetir,
+      alternarRepetir,
       reproducirModo,
       reproducirLista,
       reproducirSecuencia,
+      reproducirAleatorioArtista,
       leerVectores,
       noMeGusta,
       guardarNoMeGusta: marcarNoMeGusta,
       quitarNoMeGusta,
+      saltos,
       sorprenderMe,
       barajar,
       iniciarRadioModo,
@@ -2712,7 +2970,7 @@ export default function App() {
       topArtistas,
       aviso: avisoSalto,
       avisar: setAvisoSalto,
-      estadoResolucion,
+      estadoResolucion: estadoVisible(estadoResolucion, arranque),
       modoLocal: MODO_LOCAL,
       bibliotecaCargada,
       quitarDeCola,
@@ -2727,7 +2985,7 @@ export default function App() {
       },
       temporizador,
       fijarTemporizador,
-      reiniciar,
+      reiniciar: reiniciarContando,
       // acciones de biblioteca (los envoltorios de App, que también actualizan el estado)
       alternarFavorito,
       alternarFavoritoArtista,
@@ -2748,18 +3006,19 @@ export default function App() {
       artistasBiblioteca,
       albumesBiblioteca,
       fotoDeArtista,
-      tracksDeArtista: (nombre) => {
-        const clave = nombre.trim().toLowerCase();
-        return tracksVisibles
-          .filter((t) => separarArtistas(t.artista, artistasSolos).some((n) => n.toLowerCase() === clave))
-          .sort((a, b) => formatearTitulo(a.titulo).localeCompare(formatearTitulo(b.titulo)));
-      },
+      esDeArtista,
+      tracksDeArtista: (nombre) =>
+        tracksVisibles
+          .filter((t) => esDeArtista(t, nombre))
+          .sort((a, b) => formatearTitulo(a.titulo).localeCompare(formatearTitulo(b.titulo))),
       reproducirAlbum,
       reproducirCancionesArtista,
       agregarAlbum,
       agregarTrackSuelto,
       buscarExterno,
       agregarExterno: agregarTrackExterno,
+      asegurarEnBiblioteca,
+      videoIdDe: videoIdDeSinConexion,
       importacion,
       crearEje,
       guardarEjes,
@@ -2774,7 +3033,9 @@ export default function App() {
     };
     return (
       <>
-        <ShellMovil ctx={ctxMovil} />
+        <Suspense fallback={<div className="shell-movil" />}>
+          <ShellMovil ctx={ctxMovil} />
+        </Suspense>
         {avisoSincronizacion && (
           <div
             className="aviso-sincronizacion"
@@ -2828,8 +3089,6 @@ export default function App() {
     avisoSincronizacion,
     buscar,
     busqueda,
-    cabeceraInnerRef,
-    cabeceraOuterRef,
     cambiarVolumen,
     casiNoEscuchas,
     cerrarLetras,
@@ -2883,7 +3142,7 @@ export default function App() {
     quitarModo,
     quitarTrackSuelto,
     redescubrirExpandido,
-    reiniciar,
+    reiniciar: reiniciarContando,
     repetir,
     reproducirAlbum,
     reproducirCancionesArtista,
@@ -2905,7 +3164,7 @@ export default function App() {
     setMostrarOnboarding,
     setParaEscucharExpandido,
     setRedescubrirExpandido,
-    setRepetir,
+    alternarRepetir,
     setRevisionModos,
     setTabConfiguracion,
     setVerLetras,
@@ -2926,7 +3185,6 @@ export default function App() {
     vista,
     volumen,
     volverAtras,
-    alMontar: () => setEscritorioMontado(true),
   };
   return (
     <>

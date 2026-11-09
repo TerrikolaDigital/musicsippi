@@ -9,6 +9,8 @@ import { tramoVisible, TRAMO } from '../tramos.js';
 import { formatearTitulo } from '../../ui/formato.js';
 import { listarSeguidas, dejarDeSeguir } from '../../importar/seguidas.js';
 import EstadoVacio from '../EstadoVacio.jsx';
+import { esLaQueSuena } from '../cancionSonando.js';
+import SeccionSugeridas from '../SeccionSugeridas.jsx';
 
 const ORDENES = ['original', 'titulo', 'artista'];
 const ETIQUETA_ORDEN = { original: 'Orden original', titulo: 'Por título', artista: 'Por artista' };
@@ -90,6 +92,9 @@ export default function DetalleModo({ ctx, nav, ejeId }) {
   const color = colorTarjeta(eje);
   const portada = ctx.coversDeEje.get(eje.id)?.[0];
   const visibles = lista.slice(0, tramoVisible(lista.length, mostrados, false));
+  // Sugerencias de fuera: solo con la lista entera montada, sin filtro de texto y con red.
+  const sinRed = !!ctx.sinConexion && !ctx.sinConexion.hayRed;
+  const verSugeridas = lista.length > 0 && visibles.length >= lista.length && !texto.trim() && !sinRed;
   const ciclarOrden = () => setOrden((o) => ORDENES[(ORDENES.indexOf(o) + 1) % ORDENES.length]);
   return (
     <div className="detalle-modo" style={{ '--color-modo': color }}>
@@ -180,7 +185,7 @@ export default function DetalleModo({ ctx, nav, ejeId }) {
               key={t.id}
               track={t}
               meta={ctx.metadataDe(t.id)}
-              activa={ctx.trackActual?.id === t.id}
+              activa={esLaQueSuena(ctx.trackActual, t)}
               pausada={!ctx.sonando}
               onTocar={() => ctx.reproducirModo(eje, lista, t)}
               onMas={() => nav.abrirCapa({ tipo: 'hoja', trackId: t.id })}
@@ -190,6 +195,8 @@ export default function DetalleModo({ ctx, nav, ejeId }) {
           {visibles.length < lista.length && <div ref={centinela} className="detalle-modo-centinela" aria-hidden="true" />}
         </div>
       )}
+
+      {verSugeridas && <SeccionSugeridas ctx={ctx} eje={eje} canciones={todas} />}
     </div>
   );
 }

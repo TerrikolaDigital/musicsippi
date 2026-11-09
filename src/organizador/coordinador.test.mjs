@@ -172,3 +172,27 @@ test('si falla ritmo, MusicBrainz detalle o alimentar estados, la organización 
   assert.equal(r.colocadas, 2);
   assert.equal(r.estadosAlimentados, 0);
 });
+
+test('portadas: se buscan sin bloquear, aunque falle, y no con red medida sin permiso', async () => {
+  let llamadas = 0;
+  const completarImagenes = async () => { llamadas++; throw new Error('sin red'); };
+  const r1 = await crear(almacenBase(), { completarImagenes }).organizar({ motivo: 'manual' });
+  assert.equal(r1.fase, 'listo');
+  assert.equal(llamadas, 1);
+  await crear(almacenBase(), { completarImagenes, redMedida: () => true }).organizar({ motivo: 'manual' });
+  assert.equal(llamadas, 1);
+  await crear(almacenBase(), { completarImagenes, redMedida: () => true }).organizar({ motivo: 'manual', permitirDatos: true });
+  assert.equal(llamadas, 2);
+});
+
+test('portadas: sin onProgreso de géneros y, si hay nuevas, avisa con un evento que no cambia el estado', async () => {
+  let recibido;
+  const eventos = [];
+  const org = crear(almacenBase(), { completarImagenes: async (o) => { recibido = o; return { encontradas: 2, procesadas: 2 }; } });
+  org.suscribir((e) => eventos.push(e.fase));
+  await org.organizar({ motivo: 'manual' });
+  await new Promise((r) => setTimeout(r, 0));
+  assert.equal(recibido, undefined);
+  assert.ok(eventos.includes('portadas-nuevas'));
+  assert.equal(org.estado().fase, 'listo');
+});

@@ -1,0 +1,24 @@
+/* src/movil/artista.css — ficha de artista. */
+
+/* Con radio son seis botones y a 52 + 64 px no caben en un móvil de 375: bajan a 48 + 60 (el mínimo de
+   toque) y el hueco se ajusta al ancho para que tampoco se corten a 360. */
+.heroe .detalle-modo-acciones.con-radio {
+  gap: clamp(4px, calc((100vw - 332px) / 5), 8px);
+}
+
+.heroe .con-radio .m-sec {
+  width: 48px;
+  height: 48px;
+}
+
+.heroe .con-radio .m-play {
+  width: 60px;
+  height: 60px;
+}
+
+/* Sobre la foto, el velo oscuro de .heroe .m-sec tapaba el .on: aquí el botón activo va relleno de acento,
+   en los dos temas. */
+.heroe .m-sec.on {
+  background: var(--acento) !important;
+  color: #fff !important;
+}

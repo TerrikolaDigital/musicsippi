@@ -13,6 +13,7 @@ import { veloMini } from './veloRep.js';
 import ChipTemporizador from './ChipTemporizador.jsx';
 import { textoEstadoResolucion } from './formato.js';
 import { origenSonando, complementoSegundaLinea } from './origen.js';
+import { separarInvitados } from '../ui/creditos.js';
 import { direccionDeslizar } from './gestos.js';
 
 export function portadaDe(ctx, track) {
@@ -30,11 +31,12 @@ export default function MiniReproductor({ ctx, onAbrir, onTemporizador }) {
   const portada = t ? portadaDe(ctx, t) : null;
   const texto = t ? textoPortada(t, ctx.metadataDe(t.trackIdReal ?? t.id)) : '';
   const { t1, lum } = usePaleta(portada, texto);
-  const capas = useCruce(portada);
+  const capas = useCruce(portada, t ? ctx.metadataDe(t.trackIdReal ?? t.id)?.coverRespaldo ?? null : null);
   if (!t) return null;
   // Solo los fallos: «Buscando…» dura un instante y haría parpadear la fila.
-  const fallo = ctx.estadoResolucion === 'buscando' ? null : textoEstadoResolucion(ctx.estadoResolucion, ctx.modoLocal);
+  const fallo = ['buscando', 'preparando'].includes(ctx.estadoResolucion) ? null : textoEstadoResolucion(ctx.estadoResolucion, ctx.modoLocal);
   const desde = origenSonando(ctx.ejeActivo);
+  const creditos = separarInvitados(t); // como la notificación: los «feat.» van con el artista
   const complemento = complementoSegundaLinea({ artista: t.artista, origen: desde, album: ctx.metadataDe(t.trackIdReal ?? t.id)?.album });
   const pct = ctx.duracion > 0 ? Math.min(100, (ctx.tiempo / ctx.duracion) * 100) : 0;
   const cancelarPulsacion = () => {
@@ -72,7 +74,7 @@ export default function MiniReproductor({ ctx, onAbrir, onTemporizador }) {
       gesto.current = null;
       if (!g || g.largo) return;
       const dir = direccionDeslizar({ dx: e.clientX - g.x, dy: e.clientY - g.y, ancho: g.ancho });
-      if (dir < 0) ctx.siguiente();
+      if (dir < 0) ctx.siguienteUsuario();
       else if (dir > 0) ctx.anterior();
       // Se abre en el click, no aquí: si el reproductor completo apareciera ya, el click que el
       // navegador genera tras soltar caería en su botón de pausa (debajo del dedo) y pausaría.
@@ -103,12 +105,12 @@ export default function MiniReproductor({ ctx, onAbrir, onTemporizador }) {
       </span>
       <PortadaCruce className="mini-rep-portada" capas={capas} texto={texto} />
       <div className="mini-rep-txt">
-        <b key={`t-${t.id}`} className="cruce-texto">{formatearTitulo(t.titulo)}</b>
+        <b key={`t-${t.id}`} className="cruce-texto">{formatearTitulo(creditos.titulo)}</b>
         {fallo ? (
           <small className="mini-rep-fallo">{fallo}</small>
         ) : (
           <small key={`a-${t.id}`} className="cruce-texto">
-            {formatearTitulo(t.artista)}
+            {formatearTitulo(creditos.artista)}
             {complemento && <i className="mini-rep-desde"> · {complemento}</i>}
           </small>
         )}
@@ -141,7 +143,7 @@ export default function MiniReproductor({ ctx, onAbrir, onTemporizador }) {
         aria-label="Siguiente"
         onClick={(e) => {
           e.stopPropagation();
-          ctx.siguiente();
+          ctx.siguienteUsuario();
         }}
       >
         <IconoM nombre="siguiente" />

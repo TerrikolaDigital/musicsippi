@@ -123,7 +123,7 @@ export async function importarFilasLocal(filasCrudas, { nombrePlaylist, origen, 
     const id = idDe(f.artista, limpiarTitulo(f.titulo));
     if (idsFinales.has(id) && !cacheYoutube[id]) {
       cacheYoutube[id] = f.videoId;
-      videos.push({ trackId: id, videoId: f.videoId });
+      videos.push({ trackId: id, videoId: f.videoId, origen: 'usuario' });
     }
   }
   if (videos.length) await almacen.guardarVarios('cacheYoutube', videos);
@@ -144,13 +144,25 @@ export async function importarFilasLocal(filasCrudas, { nombrePlaylist, origen, 
   };
 }
 
-export async function agregarTrackLocal({ titulo, artista, videoId }, almacen = db) {
+/** Miniatura de YouTube Music a 544 px; si no reconoce el sufijo `=w…-h…`, la deja como está. */
+export function ampliarMiniatura(url) {
+  return typeof url === 'string' ? url.replace(/=w\d+-h\d+[^=/]*$/, '=w544-h544') : url;
+}
+
+// La portada que ya se veía en la vista previa: sin esto la canción se queda sin ella hasta que el organizador la encuentre.
+const guardarPortada = (almacen, id, coverUrl) =>
+  coverUrl ? completarMetadata(almacen, id, { coverUrl: ampliarMiniatura(coverUrl) }) : undefined;
+
+export async function agregarTrackLocal({ titulo, artista, videoId, coverUrl }, almacen = db) {
   const tituloLimpio = limpiarTitulo(limpio(titulo));
   const artistaLimpio = limpio(artista);
   if (!tituloLimpio || !artistaLimpio) throw new Error('titulo_y_artista_requeridos');
   const id = await idTrackNavegador(artistaLimpio, tituloLimpio);
   const existente = await almacen.obtenerPorClave('biblioteca', id);
-  if (existente) return { ok: true, yaExistia: true, track: existente };
+  if (existente) {
+    await guardarPortada(almacen, id, coverUrl);
+    return { ok: true, yaExistia: true, track: existente };
+  }
 
   const [tracks, ejes] = await Promise.all([almacen.obtenerTodos('biblioteca'), almacen.obtenerTodos('ejes')]);
   const nuevo = {
@@ -172,7 +184,8 @@ export async function agregarTrackLocal({ titulo, artista, videoId }, almacen = 
     await anotarCambio(almacen, 'importar-tunemymusic', { contenido: filasACsvTuneMyMusic([fila]) });
   }
   await almacen.guardarRegistro('biblioteca', nuevo);
-  if (videoId) await almacen.guardarRegistro('cacheYoutube', { trackId: id, videoId });
+  await guardarPortada(almacen, id, coverUrl);
+  if (videoId) await almacen.guardarRegistro('cacheYoutube', { trackId: id, videoId, origen: 'usuario' });
   return { ok: true, yaExistia: false, track: nuevo };
 }
 

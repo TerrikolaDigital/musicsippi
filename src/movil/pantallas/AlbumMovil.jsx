@@ -10,8 +10,10 @@ import { estadoAlbumEnBiblioteca } from '../biblioteca.js';
 import { norm } from '../busqueda.js';
 import { crearPulsacionLarga } from '../pulsacionFila.js';
 import { cancionesDeAlbumLocal, primerArtista } from '../albumLocal.js';
+import { esLaQueSuena } from '../cancionSonando.js';
 import FilaCancion from '../FilaCancion.jsx';
 import HojaAlbum from '../HojaAlbum.jsx';
+import OlaProgreso from '../OlaProgreso.jsx';
 import EstadoVacio from '../EstadoVacio.jsx';
 import SubpantallaMovil from './SubpantallaMovil.jsx';
 
@@ -76,7 +78,7 @@ export default function AlbumMovil({ ctx, nav, artista, titulo }) {
             key={t.id}
             track={t}
             meta={ctx.metadataDe(t.trackIdReal ?? t.id)}
-            activa={ctx.trackActual?.id === t.id}
+            activa={esLaQueSuena(ctx.trackActual, t)}
             pausada={!ctx.sonando}
             onTocar={() => ctx.reproducirLista(t, locales, titulo)}
             onMas={() => nav.abrirCapa({ tipo: 'hoja', trackId: t.id })}
@@ -180,7 +182,7 @@ export default function AlbumMovil({ ctx, nav, artista, titulo }) {
         >
           <IconoM nombre="aleatorio" />
         </button>
-        <button className="m-play" aria-label="Reproducir" onClick={() => ctx.reproducirAlbum(0)}>
+        <button className="m-play" aria-label="Reproducir" onClick={() => ctx.reproducirAlbum()}>
           <IconoM nombre="play" tamano={26} />
         </button>
         <button
@@ -249,7 +251,7 @@ export default function AlbumMovil({ ctx, nav, artista, titulo }) {
       <ol className="album-movil-lista">
         {al.tracks.map((t, i) => {
           const yaEsta = estaEnBiblioteca(t);
-          const sonando = ctx.trackActual?.id === t.trackId || ctx.trackActual?.id === `album-${t.trackId}`;
+          const sonando = esLaQueSuena(ctx.trackActual, t);
           return (
             <li key={`${t.trackId}-${i}`} className={sonando ? 'activa' : ''}>
               <button
@@ -269,7 +271,7 @@ export default function AlbumMovil({ ctx, nav, artista, titulo }) {
                 onPointerCancel={pulsacion.fin}
                 onContextMenu={(e) => idEnBiblioteca(t) && e.preventDefault()}
                 aria-label={`Reproducir ${formatearTitulo(t.titulo)}`}>
-                <span className="album-movil-num">{sonando ? '♪' : i + 1}</span>
+                <span className="album-movil-num">{sonando ? <OlaProgreso variante="icono" pausado={!ctx.sonando} /> : i + 1}</span>
                 <span className="album-movil-txt">
                   <b>{formatearTitulo(t.titulo)}</b>
                   {t.artista !== al.artista && <small>{formatearTitulo(t.artista)}</small>}

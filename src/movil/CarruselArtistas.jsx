@@ -3,15 +3,9 @@
 // similares» de la ficha de artista). Sin foto, o si falla, salen las iniciales.
 import { useState } from 'react';
 import { formatearTitulo } from '../ui/formato.js';
+import { inicialesDe } from './iniciales.js';
 
-const iniciales = (nombre) =>
-  formatearTitulo(nombre)
-    .split(/\s+/)
-    .filter(Boolean)
-    .slice(0, 2)
-    .map((p) => p[0])
-    .join('')
-    .toUpperCase();
+const iniciales = (nombre) => inicialesDe(formatearTitulo(nombre));
 
 function Circulo({ foto, nombre }) {
   const [fallo, setFallo] = useState(false);

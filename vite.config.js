@@ -1,15 +1,16 @@
 import { defineConfig, loadEnv } from 'vite';
+import { colorearQr, opcionesQrMarca } from './scripts/lib/qr-marca.mjs';
 import react from '@vitejs/plugin-react';
 import { readFileSync, writeFileSync, existsSync, rmSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
 import { networkInterfaces } from 'node:os';
 import QRCode from 'qrcode';
 import { join } from 'node:path';
-import { Innertube } from 'youtubei.js';
 import { parseFile } from 'music-metadata';
 import { resolverDataDir } from './scripts/lib/data-dir.mjs';
 import { idTrack } from './scripts/lib/id-track.mjs';
 import { armarRadio, pistaDeNodo } from './src/data/lib/radio.js';
+import { ordenarPorParecido } from './src/data/elegir-version.js';
 import {
   limpiarTitulo,
   clasificar,
@@ -43,7 +44,7 @@ import {
   mejorCandidato,
 } from './scripts/lib/clasificar-embeddings.mjs';
 
-// Repo público, sin autenticación, que se mantiene actualizado con
+// Repo público, sin autenticación, que el autor mantiene actualizado con
 // data/fuentes.json (vocabulario/umbrales/transversales) — ver Tarea 11 del
 // plan de modos dinámicos. Si el repo todavía no existe, verificarActualizacion
 // devuelve {aplicado:false, errores:[`HTTP ${status}`]} sin lanzar excepción.
@@ -222,7 +223,8 @@ async function agregarNbTracks(albumesCrudos, albumesFiltrados) {
  */
 let innertubePromise = null;
 function obtenerInnertube() {
-  if (!innertubePromise) innertubePromise = Innertube.create({ generate_session_locally: true });
+  // Import diferido: youtubei.js tarda ~1 s en cargar y retrasaba el arranque del servidor (y de la app de escritorio).
+  innertubePromise ??= import('youtubei.js').then(({ Innertube }) => Innertube.create({ generate_session_locally: true }));
   return innertubePromise;
 }
 
@@ -244,10 +246,20 @@ const MAX_CANDIDATOS = 5;
  * un falso positivo (aprobar algo que allá no). Por eso se mandan todos y el
  * cliente descarta el que le falle de verdad — ver /descartar-video.
  */
-async function buscarCandidatosConInnertube(q) {
+async function buscarCandidatosConInnertube(q, ref = null) {
   const yt = await obtenerInnertube();
   const r = await yt.search(q, { type: 'video' });
-  return (r.videos ?? []).map((v) => v.id).filter(Boolean).slice(0, MAX_CANDIDATOS);
+  const videos = (r.videos ?? [])
+    .filter((v) => v.id)
+    .map((v) => ({
+      videoId: v.id,
+      tipo: 'video',
+      titulo: v.title?.text ?? String(v.title ?? ''),
+      artistas: [v.author?.name].filter(Boolean),
+      duracion: Number(v.duration?.seconds ?? 0),
+    }));
+  // Antes ganaba siempre el primero, y esta caché es además la semilla del móvil.
+  return ordenarPorParecido(videos, ref).map((v) => v.videoId).slice(0, MAX_CANDIDATOS);
 }
 
 async function buscarConInnertube(q) {
@@ -527,6 +539,11 @@ function apiLocal(env) {
             const cache = existsSync(cachePath)
               ? JSON.parse(readFileSync(cachePath, 'utf8'))
               : {};
+            const referenciaDeTrack = (id) => {
+              const ruta = join(dataDir, 'biblioteca.json');
+              const t = existsSync(ruta) ? JSON.parse(readFileSync(ruta, 'utf8')).tracks?.find((x) => x.id === id) : null;
+              return t ? { titulo: t.titulo, artista: t.artista, duracionS: null } : null;
+            };
 
             if (typeof trackId !== 'string' || !trackId) {
               res.statusCode = 400;
@@ -551,7 +568,7 @@ function apiLocal(env) {
                 let candidatos = [];
                 let viaApiOficial = false;
                 try {
-                  candidatos = await buscarCandidatosConInnertube(q);
+                  candidatos = await buscarCandidatosConInnertube(q, referenciaDeTrack(trackId));
                 } catch (eInnertube) {
                   // InnerTube es no oficial: si YouTube cambia algo del lado
                   // interno puede romperse sin aviso. La Data API oficial (si
@@ -2187,7 +2204,7 @@ function apiLocal(env) {
             // La clave de emparejamiento solo viaja en el QR que ve quien está delante del PC (petición local).
             const local = ['127.0.0.1', '::1', '::ffff:127.0.0.1'].includes(req.socket.remoteAddress);
             const k = local ? `&k=${archivosLocales.claveEmparejamiento()}` : '';
-            const svg = await QRCode.toString(`musicsippi://sincronizar?d=${d}${k}`, { type: 'svg', margin: 2, width: 240 });
+            const svg = colorearQr(await QRCode.toString(`musicsippi://sincronizar?d=${d}${k}`, opcionesQrMarca(240)));
             res.setHeader('Content-Type', 'image/svg+xml');
             return res.end(svg);
           }
@@ -2244,7 +2261,22 @@ function apiLocal(env) {
             return res.end(JSON.stringify({ esquema: esquemaDeEjes(datos.ejes, datos.esquemaMoods) }));
           }
 
+          // GET /api/estado-sync-movil -> cuándo se sincronizó el móvil por última vez (lo muestra Configuración → Móvil).
+          if (url.pathname === '/estado-sync-movil' && req.method === 'GET') {
+            const p = join(dataDir, 'ultima-sync-movil.json');
+            const datos = existsSync(p) ? JSON.parse(readFileSync(p, 'utf8')) : { ultima: null };
+            return res.end(JSON.stringify(datos));
+          }
+
           if (url.pathname === '/exportar-movil' && req.method === 'GET') {
+            // El móvil baja la biblioteca al sincronizar: se anota la hora (solo si no es una petición del propio PC).
+            if (!['127.0.0.1', '::1', '::ffff:127.0.0.1'].includes(req.socket.remoteAddress)) {
+              try {
+                writeFileSync(join(dataDir, 'ultima-sync-movil.json'), JSON.stringify({ ultima: new Date().toISOString(), desde: req.socket.remoteAddress }));
+              } catch {
+                // no poder anotar la hora no debe impedir sincronizar
+              }
+            }
             const leer = (nombre, porDefecto) => {
               const p = join(dataDir, nombre);
               return existsSync(p) ? JSON.parse(readFileSync(p, 'utf8')) : porDefecto;
@@ -2351,7 +2383,7 @@ function apiLocal(env) {
           // metadata-*.json/artistas-deezer.json/cache-youtube.json a
           // propósito: son cache de portadas/fotos/videoIds, se puede volver
           // a pedir a las APIs — no es información que el usuario haya creado
-          // y que se pierda si no se guarda. Decisión de diseño: local
+          // y que se pierda si no se guarda. Confirmado con el usuario: local
           // primero (JSON descargable), nube queda para más adelante.
           if (url.pathname === '/backup') {
             const leer = (nombre, porDefecto) => {
@@ -2608,7 +2640,9 @@ function apiLocal(env) {
           //    la ÚNICA fuente que trae foto de artista, y respaldo de portada
           //    para lo que Spotify no cubre.
           if (url.pathname === '/metadata') {
-            return res.end(JSON.stringify(combinarMetadata(dataDir)));
+            // + `videoIds` (caché de vídeos del PC): la app de escritorio la usa para dar la miniatura del vídeo
+            // como portada a las canciones sin carátula. Solo aquí: el build móvil lleva su propia caché.
+            return res.end(JSON.stringify({ ...combinarMetadata(dataDir), videoIds: videoIdsParaPortadas(dataDir) }));
           }
 
           // GET /api/cercanos?trackId=...&n=...  -> tracks mas cercanos por similitud de embedding
@@ -2910,6 +2944,16 @@ function sellarVersion() {
 }
 
 
+// trackId → id de vídeo de YouTube (de cache-youtube.json), solo ids válidos. Si falta o está roto, {}.
+function videoIdsParaPortadas(dataDir) {
+  try {
+    const cache = JSON.parse(readFileSync(join(dataDir, 'cache-youtube.json'), 'utf8'));
+    return Object.fromEntries(Object.entries(cache ?? {}).filter(([, v]) => typeof v === 'string' && /^[A-Za-z0-9_-]{11}$/.test(v)));
+  } catch {
+    return {};
+  }
+}
+
 // album/anio/portada/foto por track, combinando MusicBrainz, Spotify y Deezer
 // (ver GET /api/metadata). También lo usa el build móvil, que lo lleva dentro.
 function combinarMetadata(dataDir) {
@@ -3069,6 +3113,9 @@ export default defineConfig(({ mode }) => {
       // Es una función y no un glob a propósito: `**/data/**` también taparía
       // src/data/, que sí es código.
       watch: { ignored: esDelDataDir },
+      // Precompila el árbol de la app mientras arranca el servidor: la app de escritorio sirve el código
+      // sin empaquetar y, sin esto, cada uno de los ~200 módulos se transforma recién cuando la ventana lo pide.
+      warmup: { clientFiles: ['./src/main.jsx', './src/App.jsx', './src/escritorio/AppEscritorio.jsx'] },
     },
   };
 });

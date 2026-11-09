@@ -39,7 +39,15 @@ export function useNoMeGusta() {
     },
     [fijar],
   );
-  const quitar = useCallback((tipo, clave) => fijar(quitarMarca(ref.current, tipo, clave)), [fijar]);
+  /** Quita la marca y devuelve la que había (para devolver el corazón si lo tenía). */
+  const quitar = useCallback(
+    (tipo, clave) => {
+      const previa = ref.current.find((m) => m.tipo === tipo && m.clave === clave);
+      fijar(quitarMarca(ref.current, tipo, clave));
+      return previa;
+    },
+    [fijar],
+  );
 
   return { marcas, marcar, quitar };
 }

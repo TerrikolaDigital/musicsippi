@@ -50,3 +50,17 @@ export function textoCompartir({ tipo, titulo, artista, album, videoId, modo }, 
   const contexto = modo && tipo === 'cancion' ? `\nSonaba en mi mood «${modo}».` : '';
   return `${frase}${contexto}\n${enlace}\n${FIRMA}`;
 }
+
+// Enlaces fijos a la última versión (cada versión se sube también con este nombre).
+const DESCARGA_ANDROID = 'https://github.com/TerrikolaDigital/musicsippi-android/releases/latest/download/Musicsippi.apk';
+const DESCARGA_WINDOWS = 'https://github.com/TerrikolaDigital/musicsippi/releases/latest/download/Musicsippi-Setup.exe';
+
+/** Texto de Ajustes › «Compartir Musicsippi»: lo comparte cualquiera que tenga la app. */
+export function textoCompartirApp() {
+  return [
+    'Te paso Musicsippi, una app para escuchar música que se ordena según cómo te sientes 🎧',
+    '',
+    `Android: ${DESCARGA_ANDROID}`,
+    `Windows: ${DESCARGA_WINDOWS}`,
+  ].join('\n');
+}

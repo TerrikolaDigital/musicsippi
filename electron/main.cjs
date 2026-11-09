@@ -32,7 +32,7 @@
  * desarrollo (`electron .` sin empaquetar) nada de esto corre — sigue
  * leyendo `data/` del proyecto tal cual, como hasta ahora.
  */
-const { app, BrowserWindow, Menu, ipcMain } = require('electron');
+const { app, BrowserWindow, Menu, ipcMain, shell } = require('electron');
 const fs = require('node:fs');
 const path = require('node:path');
 
@@ -153,6 +153,15 @@ app.disableHardwareAcceleration();
 let viteServer;
 let ventana;
 
+// Lo que se ve mientras arranca el servidor de Vite (varios segundos en un disco lento): sin esto la
+// ventana tardaba en aparecer y parecía que la app no abría.
+const PANTALLA_CARGA = `data:text/html;charset=utf-8,${encodeURIComponent(`<!doctype html><html><head><meta charset="utf-8">
+<style>html,body{margin:0;height:100%;background:#0D0F16;color:#e8e8f0;font-family:system-ui,sans-serif}
+body{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:16px;-webkit-app-region:drag}
+.p{width:28px;height:28px;border:3px solid #ffffff22;border-top-color:#c084fc;border-radius:50%;animation:g 0.9s linear infinite}
+@keyframes g{to{transform:rotate(360deg)}}h1{font-size:22px;font-weight:600;margin:0}p{margin:0;opacity:.6;font-size:13px}</style>
+</head><body><h1>Musicsippi</h1><div class="p"></div><p>Preparando tu música…</p></body></html>`)}`;
+
 async function iniciarServidorVite(dataDirUsuario) {
   // Import dinámico: 'vite' es ESM-only, y este archivo corre en CommonJS
   // (más simple para el proceso principal de Electron, sin tocar el resto
@@ -227,7 +236,7 @@ function crearVentana(url) {
     minHeight: 600,
     title: 'Musicsippi',
     icon: path.join(__dirname, '..', 'public', 'musicsippi-app-icon-512.png'),
-    backgroundColor: '#0D0F16',
+    backgroundColor: '#0a0b16',
     autoHideMenuBar: true,
     // Sin esto, Windows dibuja su barra de título por defecto (gris claro,
     // tema del sistema) encima del contenido oscuro de la app — se ve como
@@ -237,9 +246,10 @@ function crearVentana(url) {
     // Solo tiene efecto en Windows/Linux; en mac no hace nada (se ignora).
     titleBarStyle: 'hidden',
     titleBarOverlay: {
-      color: '#0D0F16',
+      // = --agua-fondo y --titulo-alto de corriente.css: sin corte con la barra.
+      color: '#0a0b16',
       symbolColor: '#e8e8f0',
-      height: 32,
+      height: 36,
     },
     webPreferences: {
       contextIsolation: true,
@@ -250,7 +260,13 @@ function crearVentana(url) {
       preload: path.join(__dirname, 'preload.cjs'),
     },
   });
-  win.loadURL(url);
+  // Los enlaces con target="_blank" (descargas, YouTube…) se abren en el
+  // navegador del sistema, no en una ventana de Electron sin barra de dirección.
+  win.webContents.setWindowOpenHandler(({ url: destino }) => {
+    if (/^https?:\/\//i.test(destino)) shell.openExternal(destino);
+    return { action: 'deny' };
+  });
+  win.loadURL(url ?? PANTALLA_CARGA);
   return win;
 }
 
@@ -385,6 +401,8 @@ if (!tieneElLock) {
     // y rompe el look de "app propia" que se buscaba con Electron.
     Menu.setApplicationMenu(null);
 
+    // La ventana sale ya, con la pantalla de carga; la app entra cuando el servidor está listo.
+    ventana = crearVentana(null);
     try {
       const dataDirUsuario = app.isPackaged ? prepararDatosDeUsuario() : null;
       if (app.isPackaged) cargarClavesDeUsuario();
@@ -393,7 +411,8 @@ if (!tieneElLock) {
       const url = `http://localhost:${direccion.port}`;
       console.log('[musicsippi] servidor Vite listo en', url);
 
-      ventana = crearVentana(url);
+      if (ventana.isDestroyed()) ventana = crearVentana(url);
+      else ventana.loadURL(url);
       conectarMiniatura(ventana, crearMiniatura(url));
 
       app.on('activate', () => {

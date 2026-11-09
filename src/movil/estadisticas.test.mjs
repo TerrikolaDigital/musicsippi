@@ -87,3 +87,28 @@ test('historial vacío: todo a cero', () => {
   assert.deepEqual(r.topCanciones, []);
   assert.deepEqual(r.reparto, []);
 });
+
+test('la misma canción con ids distintos cuenta junta: biblioteca, vista previa y otra subida', () => {
+  const biblio = [{ id: 'lib1', titulo: 'Dance Alone', artista: 'Sia', ejes: [] }];
+  const vista = (id, ts) => e(id, ts, { titulo: 'Dance Alone', artista: 'Sia' });
+  const historial = [e('lib1', dia(0, 9)), vista('preview-v1', dia(0, 10)), vista('preview-v2', dia(0, 11)), vista('preview-v1', dia(0, 11.5))];
+  const r = calcularEstadisticas({ historial, tracks: biblio, periodo: 'siempre', ahora });
+  assert.equal(r.topCanciones.length, 1);
+  assert.equal(r.topCanciones[0].n, 4);
+  assert.equal(r.cancionesDistintas, 1);
+  assert.equal(r.topCanciones[0].track?.id, 'lib1', 'gana la copia de la biblioteca');
+});
+
+test('la copia de la biblioteca gana aunque su entrada sea la última en llegar', () => {
+  const biblio = [{ id: 'lib1', titulo: 'Dance Alone', artista: 'Sia', ejes: [] }];
+  const historial = [e('preview-v1', dia(0, 9), { titulo: 'Dance Alone', artista: 'Sia' }), e('lib1', dia(0, 10))];
+  const c = calcularEstadisticas({ historial, tracks: biblio, periodo: 'siempre', ahora }).topCanciones[0];
+  assert.equal(c.n, 2);
+  assert.equal(c.trackId, 'lib1');
+  assert.equal(c.track?.id, 'lib1');
+});
+
+test('entradas sin título ni canción en la biblioteca siguen contando por su id', () => {
+  const r = calcularEstadisticas({ historial: [e('x', dia(0)), e('x', dia(0)), e('y', dia(0))], periodo: 'siempre', ahora });
+  assert.deepEqual(r.topCanciones.map((c) => [c.trackId, c.n]), [['x', 2], ['y', 1]]);
+});

@@ -15,6 +15,17 @@ object RedSinConexion {
         private set
     @Volatile var wifiLibre: Boolean = false
         private set
+    /** El sistema comprobó que la red llega a Internet (en el metro puede seguir «válida» sin tráfico). */
+    @Volatile var redValida: Boolean = false
+        private set
+
+    private val oyentesValidada = java.util.concurrent.CopyOnWriteArrayList<(Boolean) -> Unit>()
+    private var validadaAvisada: Boolean? = null
+
+    /** Aviso al cambiar [redValida] (hilo del callback de red). */
+    fun agregarOyenteValidada(oyente: (Boolean) -> Unit) { oyentesValidada.addIfAbsent(oyente) }
+
+    fun quitarOyenteValidada(oyente: (Boolean) -> Unit) { oyentesValidada.remove(oyente) }
 
     private val oyentes = java.util.concurrent.CopyOnWriteArrayList<(hayRed: Boolean, medida: Boolean) -> Unit>()
 
@@ -34,6 +45,7 @@ object RedSinConexion {
 
     private fun capacidades(c: NetworkCapabilities?) {
         hayRed = c?.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET) == true
+        redValida = hayRed && c?.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED) == true
         wifiLibre = hayRed &&
             c?.hasCapability(NetworkCapabilities.NET_CAPABILITY_NOT_METERED) == true &&
             c.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED)
@@ -41,6 +53,10 @@ object RedSinConexion {
 
     @Synchronized
     private fun avisar() {
+        if (validadaAvisada != redValida) {
+            validadaAvisada = redValida
+            oyentesValidada.forEach { it(redValida) }
+        }
         val par = hayRed to wifiLibre
         if (par == avisado) return
         avisado = par
@@ -53,6 +69,7 @@ object RedSinConexion {
         val cm = ctx.applicationContext.getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
         capacidades(cm.activeNetwork?.let { cm.getNetworkCapabilities(it) })
         avisado = hayRed to wifiLibre
+        validadaAvisada = redValida
         cm.registerDefaultNetworkCallback(object : ConnectivityManager.NetworkCallback() {
             override fun onCapabilitiesChanged(network: Network, c: NetworkCapabilities) {
                 capacidades(c)

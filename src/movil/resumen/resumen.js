@@ -3,6 +3,7 @@
 import { calcularEstadisticas } from '../estadisticas.js';
 
 const DIA_MS = 86400000;
+const MAX_ALTERNATIVAS = 6; // canciones entre las que se puede elegir en las tarjetas de bucle y descubrimiento
 const MIN_SEMANA_S = 3600; // el aviso de la semana pide al menos 1 h escuchada
 
 const enRango = (historial, desde, hasta) => (historial ?? []).filter((e) => e && Number.isFinite(e.ts) && e.ts >= desde && e.ts < hasta);
@@ -63,13 +64,16 @@ export function resumenQueToca(historial, { ahora = Date.now(), duracionDe } = {
 /**
  * @param {Array} historial entradas { trackId, ts, ejeId?, titulo?, artista?, duracionS? }
  * @param {Array} biblioteca canciones ({ id, trackIdReal?, titulo, artista, ejes })
- * @param {{desde:number, hasta:number, ejes?:Array, duracionDe?:Function}} o
+ * @param {{desde:number, hasta:number, ejes?:Array, duracionDe?:Function, portadaDe?:(track:object|null)=>string|null}} o
+ *   Con `portadaDe`, la canción en bucle y el descubrimiento solo pueden ser canciones con portada real;
+ *   `candidatasBucle` y `descubrimientos` traen las alternativas (todas con portada, de más a menos escuchada).
  */
-export function armarResumen(historial, biblioteca, { desde, hasta, ejes = [], duracionDe, metadataDe } = {}) {
+export function armarResumen(historial, biblioteca, { desde, hasta, ejes = [], duracionDe, metadataDe, portadaDe, fotoDe, maxAlternativas = MAX_ALTERNATIVAS } = {}) {
   const todas = (historial ?? []).filter((e) => e && Number.isFinite(e.ts));
   const entradas = enRango(todas, desde, hasta);
   const calc = (lista, ahora) => calcularEstadisticas({ historial: lista, tracks: biblioteca, ejes, periodo: 'siempre', ahora, duracionDe });
   const r = calc(entradas, hasta);
+  const tienePortada = (track) => !portadaDe || (!!track && !!portadaDe(track));
 
   // Hora favorita: la hora del día con más reproducciones.
   const porHora = new Array(24).fill(0);
@@ -77,24 +81,45 @@ export function armarResumen(historial, biblioteca, { desde, hasta, ejes = [], d
   const max = Math.max(...porHora);
   const horaFavorita = max > 0 ? porHora.indexOf(max) : null;
 
-  // Descubrimiento: canción cuya primera escucha de siempre cae en el rango, la más repetida.
+  // Descubrimiento: canciones cuya primera escucha de siempre cae en el rango, la más repetida primero.
   const primera = new Map();
   for (const e of todas) primera.set(e.trackId, Math.min(primera.get(e.trackId) ?? Infinity, e.ts));
   const nuevas = new Map();
   for (const e of entradas) if (primera.get(e.trackId) >= desde) nuevas.set(e.trackId, (nuevas.get(e.trackId) ?? 0) + 1);
-  let descubrimiento = null;
-  if (nuevas.size) {
-    const [id, veces] = [...nuevas].sort((a, b) => b[1] - a[1])[0];
+  const descubrimientos = [];
+  for (const [id, veces] of [...nuevas].sort((a, b) => b[1] - a[1]).slice(0, maxAlternativas * 4)) {
     const c = calc(entradas.filter((e) => e.trackId === id), hasta).topCanciones[0];
-    descubrimiento = { trackId: id, track: c?.track ?? null, titulo: c?.titulo ?? '', artista: c?.artista ?? '', n: veces };
+    if (!tienePortada(c?.track)) continue;
+    descubrimientos.push({ trackId: id, track: c?.track ?? null, titulo: c?.titulo ?? '', artista: c?.artista ?? '', n: veces });
+    if (descubrimientos.length >= maxAlternativas) break;
   }
+  const descubrimiento = descubrimientos[0] ?? null;
 
   // Comparativa con el periodo anterior de la misma duración.
   const largo = hasta - desde;
   const previos = calc(enRango(todas, desde - largo, desde), desde).segundos;
   const cambioPct = previos > 0 ? Math.round(((r.segundos - previos) / previos) * 100) : null;
 
-  const bucle = r.topCanciones[0] ?? null;
+  // Canciones más escuchadas a la hora favorita y dentro del mood de la semana (para las tiras de portadas).
+  const porId = new Map();
+  for (const t of biblioteca ?? []) {
+    porId.set(t.id, t);
+    if (t.trackIdReal) porId.set(t.trackIdReal, t);
+  }
+  const masEscuchadas = (pred) => {
+    const n = new Map();
+    for (const e of entradas) if (pred(e)) n.set(e.trackId, (n.get(e.trackId) ?? 0) + 1);
+    return [...n].sort((a, b) => b[1] - a[1]).map(([id]) => porId.get(id)).filter(Boolean).slice(0, 12);
+  };
+  const tracksHora = horaFavorita === null ? [] : masEscuchadas((e) => new Date(e.ts).getHours() === horaFavorita);
+  const modoId = r.topModos[0]?.ejeId;
+  const tracksModo = modoId ? masEscuchadas((e) => e.ejeId === modoId || (porId.get(e.trackId)?.ejes ?? []).some((x) => x.ejeId === modoId)) : [];
+
+  const tracksMinutos = r.topCanciones.map((c) => c.track).filter(Boolean).slice(0, 12);
+  const tracksNuevas = descubrimientos.slice(1).map((d) => d.track).filter(Boolean);
+
+  const candidatasBucle = r.topCanciones.filter((c) => tienePortada(c.track)).slice(0, maxAlternativas);
+  const bucle = candidatasBucle[0] ?? null;
   const modo = r.topModos[0] ?? null;
   return {
     desde,
@@ -106,13 +131,20 @@ export function armarResumen(historial, biblioteca, { desde, hasta, ejes = [], d
     cancionesDistintas: r.cancionesDistintas,
     artistasDistintos: r.artistasDistintos,
     bucle: bucle && { trackId: bucle.trackId, track: bucle.track, titulo: bucle.titulo, artista: bucle.artista, n: bucle.n },
-    topArtistas: r.topArtistas,
+    candidatasBucle: candidatasBucle.map((c) => ({ trackId: c.trackId, track: c.track, titulo: c.titulo, artista: c.artista, n: c.n })),
+    descubrimientos,
+    // Con `fotoDe`, solo artistas con imagen real: nunca iniciales.
+    topArtistas: fotoDe ? r.topArtistas.filter((a) => fotoDe(a.nombre)) : r.topArtistas,
     topCanciones: r.topCanciones,
     topModos: r.topModos,
     topAlbumes: topAlbumes(entradas, biblioteca, { metadataDe, duracionDe }),
     modo: modo && { ejeId: modo.ejeId, nombre: modo.nombre, fraccion: r.reparto[0]?.fraccion ?? 0 },
     racha: r.racha.mejor,
     horaFavorita,
+    tracksHora,
+    tracksModo,
+    tracksMinutos,
+    tracksNuevas,
     descubrimiento,
     previosSegundos: previos,
     cambioPct,
@@ -207,7 +239,6 @@ export function armarPantallas(res, tipo) {
     p.push({ id: 'bucle', ...res.bucle, texto });
   }
   if (res.topArtistas.length) p.push({ id: 'artistas', artistas: res.topArtistas });
-  if (res.modo) p.push({ id: 'modo', ...res.modo, texto: tipo === 'anio' ? 'El mood de tu año' : 'El mood de tu semana' });
   if (res.horaFavorita !== null) p.push({ id: 'hora', hora: res.horaFavorita, frase: fraseHora(res.horaFavorita), nota: notaHora(res.horaFavorita), racha: res.racha });
   const comparativa = fraseComparativa(res, tipo);
   if (res.descubrimiento || comparativa) p.push({ id: 'curioso', descubrimiento: res.descubrimiento, comparativa });

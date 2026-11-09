@@ -25,6 +25,7 @@ import { SeccionCargada } from '../inicio/cargador.jsx';
 import Rotativas from '../inicio/Rotativas.jsx';
 import { usePulsacionLarga } from '../pulsacionModo.js';
 import { contarCambiosPendientes, obtenerUltimaSincronizacion } from '../../data/sincronizar-movil.js';
+import { esLaQueSuena } from '../cancionSonando.js';
 import EstadoVacio from '../EstadoVacio.jsx';
 
 const MAX_RECIENTES = 3;
@@ -136,7 +137,10 @@ export default function InicioMovil({ ctx, nav }) {
     };
   }, []);
   const textoSync = textoSincronizacion(sync.ultima, sync.pendientes);
-  const organizando = !!ctx.importacion?.enSegundoPlano;
+  // Cambios por enviar solo cuentan si ya se sincronizó alguna vez: sin la app del PC no hay a quién enviarlos.
+  const porEnviar = !!sync.ultima && sync.pendientes > 0;
+  // Solo mientras la pasada automática trabaja (al acabar, su fase se queda en «listo» y no debe seguir girando).
+  const organizando = !!ctx.importacion?.organizandoAhora;
   const etiquetaSync = [textoSync, organizando && 'Organizando tu música en segundo plano'].filter(Boolean).join('. ');
 
   const sinNada = !destacado && seguidos.length === 0 && recientes.length === 0 && generos.length === 0;
@@ -150,7 +154,8 @@ export default function InicioMovil({ ctx, nav }) {
           Music<i>sippi</i>
         </div>
         <div className="m-acciones-cab">
-          {(textoSync || organizando) && (
+          {/* Oculto si no se está organizando ni hay cambios por enviar al PC; el estado de la sync sigue en Ajustes. */}
+          {(organizando || porEnviar) && (
             <button
               className={`m-redondo inicio-sync-cab${organizando ? ' organizando' : ''}`}
               aria-label={etiquetaSync}
@@ -159,7 +164,7 @@ export default function InicioMovil({ ctx, nav }) {
             >
               <IconoM nombre="sincronizar" tamano={20} />
               {organizando && <span className="inicio-organizando-punto" aria-hidden="true" />}
-              {sync.pendientes > 0 && <span className="inicio-sync-punto" aria-hidden="true" />}
+              {porEnviar && <span className="inicio-sync-punto" aria-hidden="true" />}
             </button>
           )}
           <button className="m-redondo" aria-label="Historial" onClick={() => nav.abrir({ tipo: 'historial' })}>
@@ -333,7 +338,7 @@ export default function InicioMovil({ ctx, nav }) {
                   key={t.id}
                   track={t}
                   meta={ctx.metadataDe(t.trackIdReal ?? t.id)}
-                  activa={ctx.trackActual?.id === t.id}
+                  activa={esLaQueSuena(ctx.trackActual, t)}
                   pausada={!ctx.sonando}
                   onTocar={() => ctx.reproducirLista(t, recientes, 'Recientes')}
                   onMas={() => nav.abrirCapa({ tipo: 'hoja', trackId: t.id })}

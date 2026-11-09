@@ -15,6 +15,7 @@ import ToastMovil from './ToastMovil.jsx';
 import MiniReproductor from './MiniReproductor.jsx';
 import ReproductorCompleto from './ReproductorCompleto.jsx';
 import HojaAcciones, { HojaModo, HojaArtista } from './HojaAcciones.jsx';
+import HojaExcluirArtista from './HojaExcluirArtista.jsx';
 import { useNavegacionMovil } from './useNavegacionMovil.js';
 import { clavePantalla } from './navegacion.js';
 import { crearMemoriaScroll, esVuelta } from './scrollPantalla.js';
@@ -37,6 +38,9 @@ import { repararPower } from '../data/migrar-moods-movil.js';
 import { recalificarMovil } from '../data/recalificar-moods-movil.js';
 import { obtenerMetadata } from '../data/biblioteca.js';
 import AvisoProgreso from './AvisoProgreso.jsx';
+import { debeOfrecer, destinoEnMovil, depsReales as depsCopiaAuto, iniciarEstado, mutarEstado, posponer } from '../data/copia-auto.js';
+import { esAndroid } from '../data/nativo-movil.js';
+import { TEXTO_COPIA_EN_MOVIL, TEXTO_ERROR_COPIA, copiarSinFallar, elegirDestinoYCopiar } from './copiaAutoUi.js';
 import { escucharTextoCompartido } from '../data/nativo-movil.js';
 import { abrirTextoCompartido } from './compartir.js';
 import { debeMostrarBienvenida } from './bienvenida/bienvenida.js';
@@ -44,6 +48,7 @@ import { obtenerBienvenidaVista } from './bienvenida/estado-bienvenida.js';
 import { sincronizarAlAbrir } from '../data/sincronizar-movil.js';
 import { crearQuitarDiferido } from './quitarDiferido.js';
 import { textoFranjaSinConexion } from '../data/sin-conexion.js';
+import { textoFranjaSenal } from '../data/respaldo-senal.js';
 
 // Pantallas y hojas poco usadas: se descargan al abrirlas (aligera el arranque del móvil).
 const EstadisticasMovil = lazy(() => import('./pantallas/EstadisticasMovil.jsx'));
@@ -257,6 +262,54 @@ export default function ShellMovil({ ctx: ctxApp }) {
       vivo = false;
     };
   }, [ctx.modoLocal, ctx.bibliotecaCargada]);
+  // Copia automática en Drive: al abrir (primero se fija primerUso, luego se decide si ofrecer) y
+  // cada vez que la app pasa a segundo plano. Nunca bloquea ni lanza; el aviso sale con el estado releído.
+  const [avisoCopia, setAvisoCopia] = useState(null); // 'ofrecer' | 'error' | 'movil' | null
+  const nTracksRef = useRef(0);
+  nTracksRef.current = ctx.tracks.length;
+  const copiaIniciada = useRef(false);
+  useEffect(() => {
+    if (!ctx.modoLocal || !ctx.bibliotecaCargada || copiaIniciada.current || !esAndroid()) return undefined;
+    copiaIniciada.current = true;
+    (async () => {
+      const deps = depsCopiaAuto();
+      const ahora = Date.now();
+      const inicial = await mutarEstado(deps, (e) => iniciarEstado(e, ahora));
+      const estado = (await copiarSinFallar()) ?? inicial;
+      if (estado.error) setAvisoCopia('error');
+      else if (debeOfrecer(estado, { ahora, canciones: nTracksRef.current })) setAvisoCopia('ofrecer');
+    })().catch(() => {});
+    const alOcultar = () => {
+      if (document.visibilityState === 'hidden') {
+        copiarSinFallar().then((e) => {
+          if (e?.error) setAvisoCopia('error'); // se ve al volver a la app
+        });
+      }
+    };
+    document.addEventListener('visibilitychange', alOcultar);
+    return () => document.removeEventListener('visibilitychange', alOcultar);
+  }, [ctx.modoLocal, ctx.bibliotecaCargada]);
+  const elegirDestinoAviso = async () => {
+    setAvisoCopia(null);
+    try {
+      const nuevo = await elegirDestinoYCopiar();
+      if (nuevo?.error || (nuevo && nuevo.ultimaCopia == null)) setAvisoCopia('error');
+      else if (nuevo && destinoEnMovil(nuevo.uri)) setAvisoCopia('movil');
+      else if (nuevo) ctxApp.avisar?.('Copia automática activada');
+      else if (avisoCopia === 'error') setAvisoCopia('error'); // canceló: el problema sigue
+    } catch {
+      setAvisoCopia('error');
+    }
+  };
+  const posponerAviso = async () => {
+    setAvisoCopia(null);
+    try {
+      const deps = depsCopiaAuto();
+      await mutarEstado(deps, (e) => posponer(e, Date.now()));
+    } catch {
+      // sin guardar, volverá a ofrecerse en la próxima apertura
+    }
+  };
   // No bloquea la apertura ni avisa si el PC no está en casa; si terminó con
   // cambios, el aviso existente es suficiente y la biblioteca se refresca.
   const autoSyncHecha = useRef(false);
@@ -376,6 +429,16 @@ export default function ShellMovil({ ctx: ctxApp }) {
           </span>
         </div>
       )}
+      {avisoCopia && !avisoNMG && !vaciado && !bajaPendiente && !hayReproductor && nav.capas.length === 0 && (
+        <div className="m-deshacer" role="status">
+          <span>{avisoCopia === 'error' ? TEXTO_ERROR_COPIA : avisoCopia === 'movil' ? TEXTO_COPIA_EN_MOVIL : 'Protege tu biblioteca: guarda una copia en Google Drive'}</span>
+          <span className="m-deshacer-acciones">
+            {avisoCopia === 'ofrecer' && <button onClick={posponerAviso}>Ahora no</button>}
+            {avisoCopia === 'movil' && <button onClick={() => setAvisoCopia(null)}>Cerrar</button>}
+            <button onClick={elegirDestinoAviso}>{avisoCopia === 'error' ? 'Elegir destino' : avisoCopia === 'movil' ? 'Cambiar destino' : 'Elegir dónde'}</button>
+          </span>
+        </div>
+      )}
       {vaciado && !bajaPendiente && (
         <div className="m-deshacer" role="status">
           <span>{vaciado.quitadas.length} {vaciado.quitadas.length === 1 ? 'canción quitada' : 'canciones quitadas'} de «{formatearTitulo(vaciado.eje.nombre)}»</span>
@@ -388,7 +451,12 @@ export default function ShellMovil({ ctx: ctxApp }) {
           <button onClick={() => diferido.current.deshacer()}>Deshacer</button>
         </div>
       )}
-      {ctx.sinConexion && !ctx.sinConexion.hayRed && (
+      {ctx.senalDebil?.activo && (
+        <div className="m-sin-conexion" role="status">
+          {textoFranjaSenal(ctx.senalDebil)}
+        </div>
+      )}
+      {!ctx.senalDebil?.activo && ctx.sinConexion && !ctx.sinConexion.hayRed && (
         <div className="m-sin-conexion" role="status">
           {textoFranjaSinConexion(ctx.sinConexion.nGuardadas)}
         </div>
@@ -421,6 +489,8 @@ export default function ShellMovil({ ctx: ctxApp }) {
       )}
       {capaHoja?.artista && <HojaArtista key={capaHoja.artista} ctx={ctx} nav={nav} nombre={capaHoja.artista} />}
       {capaHoja?.modoId && <HojaModo key={capaHoja.modoId} ctx={ctx} nav={nav} ejeId={capaHoja.modoId} />}
+      {/* Pregunta de saltos: solo con la app visible y sin otra hoja encima; persiste hasta responder. */}
+      {!capaHoja && <HojaExcluirArtista ctx={ctx} />}
     </div>
   );
 }

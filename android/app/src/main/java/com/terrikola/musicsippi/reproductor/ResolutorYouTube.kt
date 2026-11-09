@@ -26,6 +26,7 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
+import okhttp3.Dns
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import java.io.File
@@ -57,10 +58,23 @@ object ResolutorYouTube {
 
     private var prefs: android.content.SharedPreferences? = null
     private var dirPlayers: File? = null
+    private var conectividad: android.net.ConnectivityManager? = null
+    private var versionApp = "?"
+    private val avisosRecientes = java.util.ArrayDeque<String>() // para el detalle del fallo: logcat no llega al usuario
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
+    /** Modo reserva: inglés e IPv4. Los dos informes del S24 FE venían de redes con IPv6. */
+    @Volatile
+    private var enReserva = false
+    private var localeNormal: com.metrolist.innertubex.models.YouTubeLocale? = null
+
     private val okhttp = OkHttpClient.Builder()
+        .dns(object : Dns {
+            override fun lookup(hostname: String) = Dns.SYSTEM.lookup(hostname).let { direcciones ->
+                if (enReserva) direcciones.filterIsInstance<java.net.Inet4Address>().ifEmpty { direcciones } else direcciones
+            }
+        })
         .connectTimeout(15, TimeUnit.SECONDS)
         .readTimeout(20, TimeUnit.SECONDS)
         .build()
@@ -80,6 +94,7 @@ object ResolutorYouTube {
 
     private val logger = InnerTubeLogger { e ->
         if (e.level == InnerTubeLogLevel.DEBUG) return@InnerTubeLogger
+        if (e.level != InnerTubeLogLevel.INFO) anotarAviso("${e.tag}: ${e.message}")
         val det = if (e.details.isEmpty()) "" else e.details.entries.joinToString(prefix = " [", postfix = "]") { "${it.key}=${it.value}" }
         Log.i(TAG, "ITX ${e.tag}: ${e.message}$det")
     }
@@ -142,6 +157,10 @@ object ResolutorYouTube {
         val app = context.applicationContext
         prefs = app.getSharedPreferences("innertubex_player_config", Context.MODE_PRIVATE)
         dirPlayers = File(app.filesDir, "innertubex_players").apply { mkdirs() }
+        conectividad = app.getSystemService(android.net.ConnectivityManager::class.java)
+        innerTube.locale = localeParaYouTube(java.util.Locale.getDefault())
+        localeNormal = innerTube.locale
+        versionApp = runCatching { app.packageManager.getPackageInfo(app.packageName, 0).versionName }.getOrNull() ?: "?"
         val hayWebView by lazy { runCatching { android.webkit.CookieManager.getInstance() }.isSuccess }
         poTokens = com.terrikola.musicsippi.reproductor.potoken.PoTokenGenerator(
             createMinter = { com.terrikola.musicsippi.reproductor.potoken.PoTokenWebView.getNewPoTokenGenerator(app) },
@@ -163,35 +182,131 @@ object ResolutorYouTube {
     }
 
     suspend fun resolver(videoId: String): Resultado = withContext(Dispatchers.IO) {
-        asegurarVisitor()
         val fallos = mutableListOf<String>()
+        var calidad = AudioQuality.AUTO
+        var sinSondear: com.metrolist.innertubex.extraction.ExtractedStream? = null
         repeat(MAX_INTENTOS) {
             val excl = excluidos[videoId]?.toSet().orEmpty()
-            val s = extractor.extract(
-                videoId = videoId,
-                hints = ContentHints().withStreamCapabilities(allowHls = false, allowSabr = false, allowBoundedRange = true),
-                excludedClients = excl,
-                audioQuality = AudioQuality.AUTO,
-                clientPlaybackNonce = generateClientPlaybackNonce(),
-            ) ?: run {
+            val s = try {
+                asegurarVisitor()
+                extractor.extract(
+                    videoId = videoId,
+                    hints = ContentHints().withStreamCapabilities(allowHls = false, allowSabr = false, allowBoundedRange = true),
+                    excludedClients = excl,
+                    audioQuality = calidad,
+                    clientPlaybackNonce = generateClientPlaybackNonce(),
+                )
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                if (e is com.metrolist.innertubex.extraction.StreamResolveException) {
+                    // Metrolist #4522: el cliente descartado puede ser el único que sirve; a calidad baja suele valer.
+                    if (calidad == AudioQuality.AUTO) {
+                        anotarAviso("sin clientes con audio: todos a calidad baja")
+                        excluidos.remove(videoId)
+                        calidad = AudioQuality.LOW
+                        fallos += "calidad baja"
+                        return@repeat
+                    }
+                    if (!enReserva) {
+                        entrarEnReserva()
+                        fallos += "reserva"
+                        return@repeat
+                    }
+                }
+                // Mejor probar una URL que no pasó el sondeo que no sonar: el sondeo también puede equivocarse.
+                sinSondear?.let {
+                    anotarAviso("se usa ${it.profileId} sin sondeo")
+                    return@withContext resultadoDe(videoId, it)
+                }
+                salirDeReserva()
+                // La librería guarda la causa real aparte: sin esto el usuario solo puede enviarnos el titular.
+                val texto = "${e.message} | ${detalleFallo(e)}"
+                Log.w(TAG, "$videoId: $texto")
+                throw IllegalStateException(texto, e)
+            } ?: run {
                 // Suele ser un timeout puntual de YouTube: se reintenta en vez de rendirse.
                 fallos += "sin cliente"
                 return@repeat
             }
             if (sondear(s.audioUrl, s.headers)) {
-                Log.i(TAG, "$videoId -> ${s.profileId} (${s.mimeType}, ${(s.bitrate ?: 0) / 1000} kbps)")
-                excluidos.remove(videoId)
-                val mime = s.mimeType.orEmpty().ifBlank { "audio/mp4" }
-                // loudnessDb ya es relativo; perceptualLoudnessDb es absoluto (referencia −14).
-                val sonoridad = s.loudnessDb ?: s.perceptualLoudnessDb?.plus(14.0)
-                return@withContext Resultado(s.audioUrl, s.headers, mime, s.profileId, sonoridad)
+                return@withContext resultadoDe(videoId, s)
             }
+            sinSondear = sinSondear ?: s
             Log.w(TAG, "$videoId: ${s.profileId} rechazado pasado el primer MB; se prueba otro cliente")
             fallos += s.profileId
             excluidos.getOrPut(videoId) { ConcurrentHashMap.newKeySet() } += s.profileId
         }
-        throw IllegalStateException("no se pudo resolver $videoId (${fallos.joinToString()})")
+        sinSondear?.let {
+            anotarAviso("se usa ${it.profileId} sin sondeo")
+            return@withContext resultadoDe(videoId, it)
+        }
+        salirDeReserva()
+        throw IllegalStateException("no se pudo resolver $videoId (${fallos.joinToString()}) | ${detalleFallo(IllegalStateException())}")
     }
+
+    private fun resultadoDe(videoId: String, s: com.metrolist.innertubex.extraction.ExtractedStream): Resultado {
+        Log.i(TAG, "$videoId -> ${s.profileId} (${s.mimeType}, ${(s.bitrate ?: 0) / 1000} kbps)")
+        excluidos.remove(videoId)
+        val mime = s.mimeType.orEmpty().ifBlank { "audio/mp4" }
+        // loudnessDb ya es relativo; perceptualLoudnessDb es absoluto (referencia −14).
+        val sonoridad = s.loudnessDb ?: s.perceptualLoudnessDb?.plus(14.0)
+        return Resultado(s.audioUrl, s.headers, mime, s.profileId, sonoridad)
+    }
+
+    private fun entrarEnReserva() {
+        anotarAviso("reserva: hl en-US e IPv4")
+        enReserva = true
+        innerTube.locale = localeDeReserva(innerTube.locale)
+        okhttp.connectionPool.evictAll()
+    }
+
+    /** Una canción que no existe falla igual en reserva: si tampoco sirvió, se vuelve a lo normal. */
+    private fun salirDeReserva() {
+        if (!enReserva) return
+        enReserva = false
+        localeNormal?.let { innerTube.locale = it }
+        okhttp.connectionPool.evictAll()
+    }
+
+    private fun anotarAviso(texto: String) = synchronized(avisosRecientes) {
+        val aviso = sinUrls(texto).take(140)
+        avisosRecientes.remove(aviso) // sin repetidos: «no playable clients» echaría del informe la causa real
+        avisosRecientes.addLast(aviso)
+        while (avisosRecientes.size > MAX_AVISOS) avisosRecientes.removeFirst()
+    }
+
+    /** Las URLs firmadas no deben viajar en un informe que el usuario comparte: solo queda el dominio. */
+    private fun sinUrls(texto: String) = texto.replace(Regex("https?://([^/\\s]+)\\S*"), "$1")
+
+    private fun detalleFallo(e: Exception): String = buildList {
+        val causas = generateSequence(e.cause) { it.cause }.take(3)
+            .joinToString(" <- ") { "${it.javaClass.simpleName}: ${sinUrls(it.message.orEmpty()).take(140)}" }
+        if (causas.isNotEmpty()) add("causa=$causas")
+        val intentos = (e as? com.metrolist.innertubex.extraction.StreamResolveException)?.diagnostics?.attempts.orEmpty()
+        if (intentos.isNotEmpty()) add("intentos=" + intentos.map { "${it.profileId ?: it.clientName}:${it.outcome.take(40)}" }.distinct().takeLast(16).joinToString(","))
+        val avisos = synchronized(avisosRecientes) { avisosRecientes.joinToString(" / ").also { avisosRecientes.clear() } }
+        if (avisos.isNotEmpty()) add("avisos=$avisos")
+        add("app=$versionApp hl=${innerTube.locale.hl} gl=${innerTube.locale.gl} sistema=${java.util.Locale.getDefault().toLanguageTag()}")
+        add("visitor=${!innerTube.visitorData.isNullOrBlank()}")
+        add("red=${descripcionRed()}")
+    }.joinToString(" | ")
+
+    /** Tipo de red, sin direcciones: una VPN, un DNS privado o un IPv6 roto explican fallos que solo tiene un móvil. */
+    private fun descripcionRed(): String = runCatching {
+        val cm = conectividad ?: return "?"
+        val red = cm.activeNetwork ?: return "sin_red"
+        val cap = cm.getNetworkCapabilities(red)
+        val enlace = cm.getLinkProperties(red)
+        listOfNotNull(
+            "wifi".takeIf { cap?.hasTransport(android.net.NetworkCapabilities.TRANSPORT_WIFI) == true },
+            "movil".takeIf { cap?.hasTransport(android.net.NetworkCapabilities.TRANSPORT_CELLULAR) == true },
+            "vpn".takeIf { cap?.hasTransport(android.net.NetworkCapabilities.TRANSPORT_VPN) == true },
+            "dns_privado".takeIf { enlace?.isPrivateDnsActive == true },
+            "ipv6".takeIf { enlace?.linkAddresses?.any { it.address is java.net.Inet6Address && it.address.isLinkLocalAddress.not() } == true },
+            "validada".takeIf { cap?.hasCapability(android.net.NetworkCapabilities.NET_CAPABILITY_VALIDATED) == true },
+        ).joinToString("+")
+    }.getOrDefault("?")
 
     /**
      * Lee un rango que empieza pasado el primer MB (donde googlevideo corta a
@@ -205,12 +320,15 @@ object ResolutorYouTube {
         headers.forEach { (k, v) -> req.header(k, v) }
         return try {
             okhttp.newCall(req.build()).execute().use { r ->
-                r.code in 200..299 &&
+                val valido = r.code in 200..299 &&
                     r.header("Content-Type")?.startsWith("audio/") == true &&
                     r.body.source().request(LECTURA)
+                if (!valido) anotarAviso("sondeo: HTTP ${r.code} ${r.header("Content-Type")}")
+                valido
             }
         } catch (e: Exception) {
             Log.w(TAG, "sondeo falló: ${e.message}")
+            anotarAviso("sondeo: ${e.javaClass.simpleName} ${e.message}")
             false
         }
     }
@@ -233,5 +351,6 @@ object ResolutorYouTube {
         "https://raw.githubusercontent.com/ZemerTeam/zemer-cipher/master/library/src/main/assets/player_configs.json"
     private const val FRONTERA = 1024L * 1024
     private const val LECTURA = 16L * 1024
-    private const val MAX_INTENTOS = 4
+    private const val MAX_INTENTOS = 12
+    private const val MAX_AVISOS = 10
 }

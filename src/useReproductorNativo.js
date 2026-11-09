@@ -4,7 +4,9 @@ import { resolverAudio, crearFetchNativo, olvidarAudio } from './data/audio-nati
 import { gananciaNivelada, leerNivelar, EVENTO as EVENTO_NIVELAR } from './data/nivelar-volumen.js';
 import { leerFundido, leerSinFundidoAlbumes, EVENTO_FUNDIDO } from './data/fundido.js';
 import { esIdLocal, resolverFuenteReproduccion, trackIdDeIdLocal } from './data/reproduccion-locales.js';
-import { comandoCaducado, planAdopcion } from './data/sincronizar-nativo.js';
+import { comandoCaducado, planAdopcion, crearCoalescedor, pendientesParaNativo, destinoMetadata } from './data/sincronizar-nativo.js';
+import { ordenarPendientesNativos } from './movil/saltos.js';
+import { crearDiagnostico, crearVigilanteArranque, esFalloDelReproductor } from './data/arranque-nativo.js';
 
 /**
  * Reproductor para la app Android (Capacitor). Misma interfaz que useYouTube
@@ -71,9 +73,39 @@ function resolverFuente(id, { trackId, forzar, fetch }) {
 // anterior / play-pausa" a través de window.musicsippi (lo expone Electron).
 // En Android se expone la misma superficie mínima: así la notificación recibe
 // los metadatos y los botones del sistema llegan a App.jsx sin tocarlo.
-const metaActual = { titulo: '', artista: '', subtitulo: '', portadaUrl: null, clave: '' };
+const metaActual = { titulo: '', artista: '', subtitulo: '', portadaUrl: null, trackId: null, clave: '' };
+// La pista que JS sabe que tiene (o va a tener) el nativo: la metadata solo se le da a ella. La fija
+// el hook (reproducir, transición, adopción) con fijarPistaNativa().
+const pistaNativa = { id: null, trackId: null };
+let ultimaEnviada = ''; // `${id}|${clave}` de lo último mandado al nativo
 const oyentesComando = new Set();
 let puenteInstalado = false;
+
+/** Metadata de App para la pista `id` del nativo, o null si App describe otra canción. */
+function metaPara(id, trackId) {
+  return destinoMetadata({ trackIdMeta: metaActual.trackId, idNativo: id, trackIdNativo: trackId }) === id ? metaActual : null;
+}
+
+function enviarMetadata() {
+  const id = destinoMetadata({ trackIdMeta: metaActual.trackId, idNativo: pistaNativa.id, trackIdNativo: pistaNativa.trackId });
+  if (!id || !metaActual.clave) return; // App aún no describe la pista del nativo: se manda al cambiar
+  const firma = `${id}|${metaActual.clave}`;
+  if (firma === ultimaEnviada) return;
+  ultimaEnviada = firma;
+  ReproductorNativo.actualizarMetadata({
+    id,
+    titulo: metaActual.titulo,
+    artista: metaActual.artista,
+    album: metaActual.subtitulo,
+    portadaUrl: metaActual.portadaUrl,
+  }).catch(() => {});
+}
+
+function fijarPistaNativa(id, trackId) {
+  if (pistaNativa.id === id && pistaNativa.trackId === trackId) return;
+  Object.assign(pistaNativa, { id, trackId });
+  enviarMetadata();
+}
 
 function instalarPuente() {
   if (puenteInstalado || typeof window === 'undefined' || window.musicsippi) return;
@@ -85,15 +117,11 @@ function instalarPuente() {
       const subtitulo = `Sonando desde · ${estado.modo?.nombre ?? 'tu biblioteca'}`;
       const favorito = Boolean(estado.favorito);
       const aleatorio = Boolean(estado.aleatorio);
-      const clave = `${estado.titulo}|${estado.artista}|${subtitulo}|${portadaUrl}|${favorito}|${aleatorio}`;
+      const trackId = estado.trackId ?? null;
+      const clave = `${trackId}|${estado.titulo}|${estado.artista}|${subtitulo}|${portadaUrl}|${favorito}|${aleatorio}`;
       if (clave === metaActual.clave) return; // `sonando` también dispara esto
-      Object.assign(metaActual, { titulo: estado.titulo, artista: estado.artista, subtitulo, portadaUrl, clave });
-      ReproductorNativo.actualizarMetadata({
-        titulo: metaActual.titulo,
-        artista: metaActual.artista,
-        album: metaActual.subtitulo,
-        portadaUrl,
-      }).catch(() => {});
+      Object.assign(metaActual, { titulo: estado.titulo, artista: estado.artista, subtitulo, portadaUrl, trackId, clave });
+      enviarMetadata();
       ReproductorNativo.configurarAcciones({ favorito, aleatorio }).catch(() => {});
     },
     alRecibirComando(callback) {
@@ -114,12 +142,26 @@ const MAX_SIGUIENTES = 3;
 const CONCURRENCIA_PRECARGA = 2;
 const MAX_ANTERIORES = 1;
 
-export function useReproductorNativo(alTerminar, alFallarVideo, alAvanzarNativo) {
+// Espera para agrupar las transiciones atrasadas que llegan en ráfaga al despertar el WebView.
+const ESPERA_TRANSICIONES_MS = 300;
+const SENAL_INICIAL = { activo: false, esperando: false, idInterrumpida: null };
+// Espera antes de reintentar una orden que el servicio no aceptó (el plugin ya rehízo la conexión).
+const ESPERA_REINTENTO_NATIVO_MS = 1500;
+
+const diagnostico = crearDiagnostico({ entorno: () => globalThis.navigator?.userAgent ?? '' });
+/** Rastro de lo último que intentó el reproductor, para copiarlo desde el aviso de fallo. */
+export const informeDiagnostico = () => diagnostico.informe();
+
+export function useReproductorNativo(alTerminar, alFallarVideo, alAvanzarNativo, alSaltoNativo) {
   const contenedorRef = useRef(null); // sin uso: no hay iframe. App.jsx lo monta igual.
   const alTerminarRef = useRef(alTerminar);
   const alFallarVideoRef = useRef(alFallarVideo);
   const alAvanzarNativoRef = useRef(alAvanzarNativo);
+  const alSaltoNativoRef = useRef(alSaltoNativo);
+  const senalDebilRef = useRef(SENAL_INICIAL);
+  const trackIdRespaldoRef = useRef(new Map()); // videoId de respaldo -> trackId (para mostrar lo que suena)
   const cargandoRef = useRef(0); // token de la cargarPista en vuelo (0 = ninguna)
+  const anticipadaRef = useRef(null); // {lista, actualId}: lo que sigue, antes de resolverlo
   const precargaRef = useRef(null); // última petición {lista, actualId}
   const tokenPrecargaRef = useRef(0);
   const videoActualRef = useRef(null);
@@ -137,6 +179,21 @@ export function useReproductorNativo(alTerminar, alFallarVideo, alAvanzarNativo)
   const nativoVivoRef = useRef(false); // al abrir, el nativo ya tenía una pista y se adoptó (no se restaura encima)
   const esperaSyncRef = useRef(null); // promesa de la primera sincronización con el nativo
   const reproducirRef = useRef(null);
+  const pedidoRef = useRef(null); // último id pedido: es el que reintenta ▶ tras un fallo
+  const arranqueRef = useRef(null); // null | {fase:'cargando'} | {fase:'fallo', motivo}
+  // trackId de un id de la cola nativa: lo registra quien lo pide; los locales lo llevan dentro.
+  const trackIdDe = useCallback(
+    (id) => trackIdPorIdRef.current.get(id) ?? (id && esIdLocal(id) ? trackIdDeIdLocal(id) : null),
+    []
+  );
+  // Única puerta para cambiar la pista actual del lado JS: así la metadata va siempre con su pista.
+  const marcarActual = useCallback(
+    (id) => {
+      videoActualRef.current = id;
+      if (id) fijarPistaNativa(id, trackIdDe(id));
+    },
+    [trackIdDe]
+  );
 
   const [listo, setListo] = useState(false);
   const [sonando, setSonando] = useState(false);
@@ -144,6 +201,37 @@ export function useReproductorNativo(alTerminar, alFallarVideo, alAvanzarNativo)
   const [duracion, setDuracion] = useState(0);
   const [volumen, setVolumenState] = useState(() => leerVolumenGuardado());
   const [temporizador, setTemporizador] = useState(null); // {finMs?, alFinal}
+  const servicioCerradoRef = useRef(false); // el nativo se cerró solo tras una pausa larga
+  const [senalDebil, setSenalDebilState] = useState(SENAL_INICIAL);
+  const [arranque, setArranque] = useState(null);
+  const vigilanteRef = useRef(null);
+  vigilanteRef.current ??= crearVigilanteArranque({
+    alCambiar: (e) => {
+      arranqueRef.current = e;
+      setArranque(e);
+      if (e?.fase === 'fallo') diagnostico.anotar('sin arrancar', e.motivo);
+    },
+  });
+  // Guardada que suena por falta de señal {videoId, trackId}: no está en la cola, pero es lo que hay que mostrar.
+  const [pistaRespaldo, setPistaRespaldoState] = useState(null);
+  const pistaRespaldoRef = useRef(null);
+  const setPistaRespaldo = useCallback((p) => {
+    pistaRespaldoRef.current = p?.videoId ?? null;
+    setPistaRespaldoState(p);
+  }, []);
+
+  const fijarSenalDebil = useCallback((v) => {
+    const nuevo = v ? { activo: !!v.activo, esperando: !!v.esperando, idInterrumpida: v.idInterrumpida ?? null } : SENAL_INICIAL;
+    senalDebilRef.current = nuevo;
+    setSenalDebilState(nuevo);
+    if (!nuevo.activo || nuevo.esperando) setPistaRespaldo(null);
+  }, [setPistaRespaldo]);
+
+  // Suena una guardada del modo sin señal. videoActualRef sigue siendo la interrumpida a propósito: así el
+  // reproducir(interrumpida) que dispare App es un no-op y no se pisa al nativo, que vuelve a ella solo.
+  const anotarRespaldo = useCallback((videoId) => {
+    setPistaRespaldo({ videoId, trackId: trackIdRespaldoRef.current.get(videoId) ?? null });
+  }, [setPistaRespaldo]);
 
   useEffect(() => {
     alTerminarRef.current = alTerminar;
@@ -154,6 +242,28 @@ export function useReproductorNativo(alTerminar, alFallarVideo, alAvanzarNativo)
   useEffect(() => {
     alAvanzarNativoRef.current = alAvanzarNativo;
   }, [alAvanzarNativo]);
+  useEffect(() => {
+    alSaltoNativoRef.current = alSaltoNativo;
+  }, [alSaltoNativo]);
+
+  // Entrega al nativo lo que sigue sin resolver nada: bloquear la pantalla justo tras elegir una canción
+  // duerme el WebView, y sin esto el servicio se queda sin siguiente. Espera a cargar(), que las borra.
+  const enviarAnticipada = useCallback(() => {
+    const pedido = anticipadaRef.current;
+    if (!pedido || cargandoRef.current || pedido.actualId !== videoActualRef.current) return;
+    ReproductorNativo.fijarPendientes({
+      actualId: pedido.actualId,
+      pendientes: pendientesParaNativo(pedido.lista, esIdLocal),
+    }).catch((e) => console.warn('[audio-nativo] fijarPendientes', e?.message ?? e));
+  }, []);
+
+  const anticiparCola = useCallback(
+    (lista, actualVideoId) => {
+      anticipadaRef.current = { lista, actualId: actualVideoId };
+      enviarAnticipada();
+    },
+    [enviarAnticipada]
+  );
 
   /**
    * Resuelve las siguientes pistas y se las entrega a la cola nativa. Se
@@ -173,16 +283,18 @@ export function useReproductorNativo(alTerminar, alFallarVideo, alAvanzarNativo)
     // siguientes en el reparto de trabajo, que son las que urgen.
     const previas = (pedido.anteriores ?? []).slice(-MAX_ANTERIORES);
     const trabajo = [...lista, ...previas];
-    // El servicio nativo solo sabe resolver YouTube: las pendientes se cortan en la primera local
-    // para no saltarse canciones; esa y las siguientes las entrega JS cuando le toque.
-    const resto = pedido.lista.slice(MAX_SIGUIENTES);
-    const corte = resto.findIndex((p) => esIdLocal(p.videoId));
-    const pendientes = (corte === -1 ? resto : resto.slice(0, corte)).map((p) => ({
-      id: p.videoId,
-      titulo: p.titulo ?? '',
-      artista: p.artista ?? '',
-      portadaUrl: p.portadaUrl ?? null,
-    }));
+    // Registra el trackId de todas: el nativo puede pasar solo a cualquiera (también a las pendientes).
+    for (const p of [...pedido.lista, ...(pedido.anteriores ?? [])]) {
+      if (p.trackId) trackIdPorIdRef.current.set(p.videoId, p.trackId);
+    }
+    // Si la lista anticipada ya llega más lejos que este pedido, no se pisa con una más corta.
+    const anticipada = anticipadaRef.current;
+    const base =
+      anticipada?.actualId === pedido.actualId && anticipada.lista.length > pedido.lista.length
+        ? anticipada.lista
+        : pedido.lista;
+    const enItems = new Set(lista.map((p) => p.videoId));
+    const pendientes = pendientesParaNativo(base.filter((p) => !enItems.has(p.videoId)), esIdLocal);
     const resueltos = new Array(trabajo.length).fill(null);
     let siguiente = 0;
     const fetchNativo = await obtenerFetch();
@@ -209,6 +321,7 @@ export function useReproductorNativo(alTerminar, alFallarVideo, alAvanzarNativo)
       headers: audio.headers,
       titulo: pista.titulo ?? '',
       artista: pista.artista ?? '',
+      album: metaActual.subtitulo, // «Sonando desde · …»: el mismo origen que la actual
       portadaUrl: pista.portadaUrl ?? null,
       duracionMs: Math.round((audio.duracion ?? 0) * 1000),
       gananciaDb: gananciaNivelada(audio.loudnessDb),
@@ -221,6 +334,17 @@ export function useReproductorNativo(alTerminar, alFallarVideo, alAvanzarNativo)
         items: resueltos.slice(0, lista.length).filter(Boolean).map(aItem),
         // Solo si el llamador las indicó (aunque sea vacío: entonces el nativo olvida su historial).
         ...(pedido.anteriores ? { anteriores: resueltos.slice(lista.length).filter(Boolean).map(aItem) } : {}),
+        // Música guardada que el nativo reproduce si se pierde la señal.
+        ...(pedido.respaldo
+          ? {
+              respaldo: pedido.respaldo.map((p) => ({
+                id: p.videoId,
+                titulo: p.titulo ?? '',
+                artista: p.artista ?? '',
+                portadaUrl: p.portadaUrl ?? null,
+              })),
+            }
+          : {}),
       });
     } catch (e) {
       console.warn('[audio-nativo] encolarSiguientes', e?.message ?? e);
@@ -233,10 +357,18 @@ export function useReproductorNativo(alTerminar, alFallarVideo, alAvanzarNativo)
    * la que van: si ya no es la actual, la petición se descarta.
    */
   const precargarSiguientes = useCallback(
-    (lista, actualVideoId, anteriores) => {
+    (lista, actualVideoId, anteriores, respaldo) => {
       // `anteriores` (opcional, de la mas lejana a la mas cercana): van ANTES de la actual; el nativo las
       // conserva para que el boton anterior funcione con el WebView dormido.
-      precargaRef.current = { lista: lista ?? [], actualId: actualVideoId ?? null, anteriores: anteriores ?? null };
+      // `respaldo` (opcional): [{videoId, trackId, titulo, artista, portadaUrl}] guardadas en el móvil para
+      // cuando falle la señal.
+      if (respaldo) for (const p of respaldo) if (p.trackId) trackIdRespaldoRef.current.set(p.videoId, p.trackId);
+      precargaRef.current = {
+        lista: lista ?? [],
+        actualId: actualVideoId ?? null,
+        anteriores: anteriores ?? null,
+        respaldo: respaldo ?? null,
+      };
       ejecutarPrecarga();
     },
     [ejecutarPrecarga]
@@ -244,11 +376,18 @@ export function useReproductorNativo(alTerminar, alFallarVideo, alAvanzarNativo)
 
   const fallar = useCallback((videoId, codigo, detalle) => {
     console.warn('[audio-nativo] fallo', codigo, videoId, detalle ?? '');
+    diagnostico.anotar('fallo', `${codigo} ${videoId} ${detalle ?? ''}`);
+    // El reproductor del móvil no responde: la canción no tiene la culpa y saltar fallaría igual.
+    if (esFalloDelReproductor(codigo)) {
+      vigilanteRef.current.fallo(codigo);
+      return;
+    }
     saltosSeguidosRef.current += 1;
     if (saltosSeguidosRef.current >= MAX_SALTOS_SEGUIDOS) {
       console.warn('[audio-nativo] demasiados fallos seguidos: se para (¿sin conexión?)');
       saltosSeguidosRef.current = 0;
       ReproductorNativo.pausar().catch(() => {});
+      vigilanteRef.current.fallo(codigo);
       return;
     }
     // Se limpia para que reproducir() no descarte por idempotencia el
@@ -283,32 +422,46 @@ export function useReproductorNativo(alTerminar, alFallarVideo, alAvanzarNativo)
         return;
       }
       if (token !== tokenRef.current) return;
+      diagnostico.anotar('resuelto', `${videoId} ${audio.cliente ?? ''}`);
       if (audio.duracion > 0) setDuracion(audio.duracion);
       try {
         await ReproductorNativo.fijarVolumen({ valor: volumenRef.current });
+        // Solo la metadata de ESTA pista: si App ya describe otra, mejor vacía que con otro título.
+        const meta = metaPara(videoId, trackIdDe(videoId));
+        servicioCerradoRef.current = false; // cargar() recrea el servicio si hacía falta
         await ReproductorNativo.cargar({
           url: audio.url,
           headers: audio.headers,
-          titulo: metaActual.titulo,
-          artista: metaActual.artista,
-          album: metaActual.subtitulo,
-          portadaUrl: metaActual.portadaUrl,
+          titulo: meta?.titulo ?? '',
+          artista: meta?.artista ?? '',
+          album: meta?.subtitulo ?? '',
+          portadaUrl: meta?.portadaUrl ?? null,
           posicionMs: Math.round(segundos * 1000),
           reproducirAlCargar: autoplay,
           id: videoId,
           gananciaDb: gananciaNivelada(audio.loudnessDb),
         });
+        diagnostico.anotar('entregado', videoId);
         if (token === tokenRef.current) {
           cargandoRef.current = 0;
+          enviarAnticipada();
           ejecutarPrecarga(); // la cola nativa quedó solo con esta pista
         }
       } catch (e) {
         if (token !== tokenRef.current) return;
         cargandoRef.current = 0;
-        fallar(videoId, 'nativo', e?.message ?? String(e));
+        diagnostico.anotar('orden rechazada', `${intento} ${e?.message ?? e}`);
+        // El plugin ya descartó la conexión colgada: un reintento la rehace desde cero.
+        if (intento < 1) {
+          setTimeout(() => {
+            if (token === tokenRef.current) cargarPista(videoId, { autoplay, segundos, forzar, intento: intento + 1 });
+          }, ESPERA_REINTENTO_NATIVO_MS);
+          return;
+        }
+        fallar(videoId, e?.code === 'rechazado' ? 'nativo_rechazado' : 'nativo', e?.message ?? String(e));
       }
     },
-    [fallar, ejecutarPrecarga]
+    [fallar, ejecutarPrecarga, enviarAnticipada, trackIdDe]
   );
 
   // «Nivelar volumen»: el servicio aplica la ganancia de cada pista; aquí solo se le dice si está activa.
@@ -344,20 +497,26 @@ export function useReproductorNativo(alTerminar, alFallarVideo, alAvanzarNativo)
     const reciente = Date.now() - peticionRef.current < 3000;
     const plan = planAdopcion({ nativo, videoActual: videoActualRef.current, cargando: cargandoRef.current || reciente });
     if (!plan) return false;
-    if (plan.cambioPista) {
-      videoActualRef.current = plan.id; // el reproducir(id) que dispare App será no-op
+    if (plan.senalDebil) fijarSenalDebil(plan.senalDebil);
+    if (plan.respaldo) {
+      // Una guardada del modo sin señal no está en la cola de JS: no se avanza el índice.
+      if (plan.id !== pistaRespaldoRef.current) anotarRespaldo(plan.id);
+    } else if (plan.cambioPista) {
+      marcarActual(plan.id); // el reproducir(id) que dispare App será no-op
       recuperacionesRef.current = 0;
+      setPistaRespaldo(null);
       alAvanzarNativoRef.current?.(plan.id);
     }
     posicionMsRef.current = plan.posicionMs;
     setTiempo(plan.posicionMs / 1000);
     if (plan.duracionMs > 0) setDuracion(plan.duracionMs / 1000);
     const suena = plan.estado === 'reproduciendo';
+    if (suena) vigilanteRef.current.sono();
     estadoRef.current = plan.estado;
     sonandoRef.current = suena;
     setSonando(suena);
     return true;
-  }, []);
+  }, [fijarSenalDebil, anotarRespaldo, setPistaRespaldo, marcarActual]);
 
   // Al abrir (o recrearse el WebView) y cada vez que la app vuelve a primer plano: la fuente de verdad
   // es el nativo. Sin esto, JS seguiría creyendo en la pista vieja y la restauraría/recargaría encima.
@@ -378,21 +537,63 @@ export function useReproductorNativo(alTerminar, alFallarVideo, alAvanzarNativo)
     return () => document.removeEventListener('visibilitychange', alVolver);
   }, [sincronizarConNativo]);
 
+  // Lo que anota el servicio: saltos con el JS dormido (bloqueo, notificación, auricular), oídas y reproducciones.
+  useEffect(() => {
+    const recoger = () => {
+      ReproductorNativo.saltosPendientes()
+        .then((r) => {
+          // Saltos y oídas (tipo «oida») juntos y en el orden en que ocurrieron.
+          for (const s of ordenarPendientesNativos(r?.saltos)) alSaltoNativoRef.current?.(s);
+        })
+        .catch(() => {});
+    };
+    const alVolver = () => {
+      if (!document.hidden) recoger();
+    };
+    recoger();
+    document.addEventListener('visibilitychange', alVolver);
+    // Con la app abierta no cambia la visibilidad: el servicio avisa de cada reproducción que anota.
+    const alAnotar = crearCoalescedor(recoger, ESPERA_TRANSICIONES_MS);
+    const aviso = ReproductorNativo.addListener('anotacion', () => alAnotar());
+    return () => {
+      document.removeEventListener('visibilitychange', alVolver);
+      aviso.then((h) => h.remove()).catch(() => {});
+    };
+  }, []);
+
   // Eventos del servicio nativo.
   useEffect(() => {
     instalarPuente();
     let cancelado = false;
     const manejadores = [];
+    // Al despertar el WebView llegan en ráfaga las transiciones que ocurrieron dormido: solo vale la última.
+    const coalescerTransicion = crearCoalescedor(({ id, respaldo }) => {
+      if (!id) return;
+      recuperacionesRef.current = 0;
+      posicionMsRef.current = 0;
+      setTiempo(0);
+      setDuracion(0);
+      if (respaldo) {
+        anotarRespaldo(id);
+        return;
+      }
+      marcarActual(id);
+      setPistaRespaldo(null);
+      alAvanzarNativoRef.current?.(id);
+    }, ESPERA_TRANSICIONES_MS);
     (async () => {
       const alta = [
         await ReproductorNativo.addListener('estado', (e) => {
           estadoRef.current = e.estado;
+          if (e.estado === 'error' || e.estado === 'reproduciendo') diagnostico.anotar(e.estado, `${e.codigo ?? ''} ${e.mensaje ?? ''}`);
           if (e.estado === 'error') {
+            // En el modo sin señal el nativo gestiona los cortes de red: JS no debe recargar ni saltar.
+            if (senalDebilRef.current.activo) return;
             // El error puede ser de una pista encolada que ya pasó a sonar
             // mientras JS dormía: manda el id que informa el servicio.
             const videoId = e.id || videoActualRef.current;
             if (!videoId) return;
-            videoActualRef.current = videoId;
+            marcarActual(videoId);
             sonandoRef.current = false;
             setSonando(false);
             // Una canción que ya sonó no se salta por un corte: se vuelve a
@@ -415,6 +616,7 @@ export function useReproductorNativo(alTerminar, alFallarVideo, alAvanzarNativo)
           sonandoRef.current = suena;
           setSonando(suena);
           if (suena) {
+            vigilanteRef.current.sono();
             recuperacionesRef.current = 0;
             saltosSeguidosRef.current = 0;
             sonoRef.current = videoActualRef.current;
@@ -425,14 +627,11 @@ export function useReproductorNativo(alTerminar, alFallarVideo, alAvanzarNativo)
         // botón del sistema). Con el WebView congelado esto llega tarde, al
         // despertar; no importa, el audio ya siguió. Se marca la pista como
         // actual para que el reproducir(videoId) que dispare App sea no-op.
-        await ReproductorNativo.addListener('transicion', ({ id }) => {
-          if (!id) return;
-          videoActualRef.current = id;
-          recuperacionesRef.current = 0;
-          posicionMsRef.current = 0;
-          setTiempo(0);
-          setDuracion(0);
-          alAvanzarNativoRef.current?.(id);
+        await ReproductorNativo.addListener('transicion', (t) => coalescerTransicion(t)),
+        await ReproductorNativo.addListener('senalDebil', (v) => fijarSenalDebil(v)),
+        // Pausa larga: el servicio se cerró solo. El siguiente ▶ vuelve a cargar la pista en su posición.
+        await ReproductorNativo.addListener('cerrado', () => {
+          servicioCerradoRef.current = true;
         }),
         await ReproductorNativo.addListener('temporizador', (t) => {
           setTemporizador(t.finMs || t.alFinal ? { finMs: t.finMs ?? null, alFinal: !!t.alFinal } : null);
@@ -453,14 +652,14 @@ export function useReproductorNativo(alTerminar, alFallarVideo, alAvanzarNativo)
       cancelado = true;
       manejadores.forEach((h) => h.remove());
     };
-  }, [cargarPista, fallar]);
+  }, [cargarPista, fallar, fijarSenalDebil, anotarRespaldo, setPistaRespaldo, marcarActual]);
 
   const reproducir = useCallback(
     (videoId, opciones) => {
       if (!videoId) return;
       // Mismo contrato idempotente que useYouTube: volver a pedir el video que
-      // ya está cargado no lo reinicia.
-      if (videoActualRef.current === videoId) return;
+      // ya está cargado no lo reinicia. Tras un fallo sí vale: volver a tocarla es reintentar.
+      if (videoActualRef.current === videoId && arranqueRef.current?.fase !== 'fallo') return;
       const autoplay = opciones?.autoplay ?? true;
       const segundos = opciones?.segundos ?? 0;
       if (!autoplay) {
@@ -471,12 +670,18 @@ export function useReproductorNativo(alTerminar, alFallarVideo, alAvanzarNativo)
           return;
         }
         if (nativoVivoRef.current) return;
+        vigilanteRef.current.limpiar();
       } else {
         nativoVivoRef.current = false;
+        // Solo tras un fallo: los saltos automáticos también pasan por aquí y tienen que seguir sumando.
+        if (arranqueRef.current?.fase === 'fallo') saltosSeguidosRef.current = 0;
+        vigilanteRef.current.iniciar();
       }
+      diagnostico.anotar('pedido', `${videoId} autoplay=${autoplay}`);
+      pedidoRef.current = videoId;
       peticionRef.current = Date.now();
       if (opciones?.trackId) trackIdPorIdRef.current.set(videoId, opciones.trackId);
-      videoActualRef.current = videoId;
+      marcarActual(videoId);
       recuperacionesRef.current = 0;
       setTiempo(segundos);
       setDuracion(0);
@@ -501,7 +706,7 @@ export function useReproductorNativo(alTerminar, alFallarVideo, alAvanzarNativo)
         cargarNormal();
       }
     },
-    [cargarPista, ejecutarPrecarga]
+    [cargarPista, ejecutarPrecarga, marcarActual]
   );
   reproducirRef.current = reproducir;
 
@@ -509,17 +714,20 @@ export function useReproductorNativo(alTerminar, alFallarVideo, alAvanzarNativo)
   // pantalla), pero App.jsx lo usa también como "reintenta este video".
   const recrearPlayer = useCallback(
     (opciones) => {
-      const videoId = opciones?.videoId ?? videoActualRef.current;
+      const videoId = opciones?.videoId ?? videoActualRef.current ?? pedidoRef.current;
       if (!videoId) return;
+      if (opciones?.autoplay ?? true) vigilanteRef.current.iniciar();
+      diagnostico.anotar('reintento', videoId);
+      pedidoRef.current = videoId;
       peticionRef.current = Date.now();
-      videoActualRef.current = videoId;
+      marcarActual(videoId);
       cargarPista(videoId, {
         autoplay: opciones?.autoplay ?? true,
         segundos: opciones?.segundos ?? 0,
         forzar: true,
       });
     },
-    [cargarPista]
+    [cargarPista, marcarActual]
   );
 
   const buscar = useCallback((segundos) => {
@@ -544,9 +752,14 @@ export function useReproductorNativo(alTerminar, alFallarVideo, alAvanzarNativo)
   }, []);
 
   const alternarPausa = useCallback(() => {
-    if (sonandoRef.current) ReproductorNativo.pausar().catch(() => {});
+    // Tras un fallo el nativo no tiene nada que reanudar: ▶ es «inténtalo otra vez».
+    if (arranqueRef.current?.fase === 'fallo' || servicioCerradoRef.current) {
+      servicioCerradoRef.current = false;
+      saltosSeguidosRef.current = 0;
+      recrearPlayer({ segundos: posicionMsRef.current / 1000 });
+    } else if (sonandoRef.current) ReproductorNativo.pausar().catch(() => {});
     else ReproductorNativo.reproducir().catch(() => {});
-  }, []);
+  }, [recrearPlayer]);
 
   const pausar = useCallback(() => {
     ReproductorNativo.pausar().catch(() => {});
@@ -588,6 +801,10 @@ export function useReproductorNativo(alTerminar, alFallarVideo, alAvanzarNativo)
     alternarSilencio,
     recrearPlayer,
     precargarSiguientes,
+    anticiparCola,
+    senalDebil,
+    pistaRespaldo,
+    arranque,
     listo,
     sonando,
     tiempo,

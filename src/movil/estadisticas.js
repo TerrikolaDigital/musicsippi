@@ -3,6 +3,8 @@
 // Cada entrada del historial es { trackId, ts, ejeId?, ejeNombre?, titulo?, artista?, duracionS? }.
 // Si una entrada no guarda la duración (historial anterior), se usa la de la canción en la
 // biblioteca (`duracionDe`) y, si tampoco hay, una estimada (DURACION_ESTIMADA_S).
+import { claveDeHistorial } from './historial.js';
+
 export const DURACION_ESTIMADA_S = 210;
 export const PERIODOS = ['semana', 'mes', 'anio', 'siempre'];
 const TOP = 5;
@@ -91,10 +93,13 @@ export function calcularEstadisticas({ historial, tracks = [], ejes = [], period
     const titulo = track?.titulo ?? e.titulo ?? '';
     const artista = track?.artista ?? e.artista ?? '';
 
-    const c = canciones.get(e.trackId) ?? { trackId: e.trackId, track, titulo, artista, n: 0, segundos: 0 };
+    // Por canción, no por id: la misma suena como biblioteca, vista previa u otra subida. Gana la copia de la biblioteca.
+    const claveC = claveDeHistorial({ trackId: e.trackId, titulo, artista });
+    const c = canciones.get(claveC) ?? { trackId: e.trackId, track, titulo, artista, n: 0, segundos: 0 };
+    if (track && !c.track) Object.assign(c, { trackId: e.trackId, track, titulo, artista });
     c.n += 1;
     c.segundos += s;
-    canciones.set(e.trackId, c);
+    canciones.set(claveC, c);
 
     const claveA = artista.trim().toLowerCase();
     if (claveA) {

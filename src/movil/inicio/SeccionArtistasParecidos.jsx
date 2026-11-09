@@ -6,6 +6,7 @@ import { crearPulsacionLarga } from '../pulsacionFila.js';
 import { entradaArtista, filtrarNoMeGusta } from '../noMeGusta.js';
 import { IconoM } from '../iconos.jsx';
 import { formatearTitulo } from '../../ui/formato.js';
+import { inicialesDe } from '../iniciales.js';
 import { artistasSemilla, calcularParecidos } from './calculos.js';
 import { HORA_MS } from './cache.js';
 import { dzUnico, previewDeCancion, resolverVideo, useSeccionExterna } from './externas.js';
@@ -13,14 +14,7 @@ import { dzUnico, previewDeCancion, resolverVideo, useSeccionExterna } from './e
 const MINIMO = 3;
 const EXITOS = 5;
 
-const iniciales = (nombre) =>
-  formatearTitulo(nombre)
-    .split(/\s+/)
-    .filter(Boolean)
-    .slice(0, 2)
-    .map((p) => p[0])
-    .join('')
-    .toUpperCase();
+const iniciales = (nombre) => inicialesDe(formatearTitulo(nombre));
 
 function Circulo({ foto, nombre }) {
   const [fallo, setFallo] = useState(false);
@@ -65,7 +59,7 @@ export default function SeccionArtistasParecidos({ ctx, nav }) {
       const resueltas = await Promise.allSettled(canciones.map(async (c) => previewDeCancion(c, await resolverVideo(ctxRef.current.buscarExterno, c))));
       const previews = resueltas.filter((r) => r.status === 'fulfilled').map((r) => r.value);
       if (previews.length === 0) throw new Error('sin canciones');
-      ctxRef.current.reproducirLista(previews[0], previews, `Éxitos de ${a.nombre}`);
+      ctxRef.current.reproducirLista(null, previews, `Éxitos de ${a.nombre}`);
       poner(`${a.id}:play`, undefined);
     } catch {
       poner(`${a.id}:play`, 'error');
@@ -80,7 +74,7 @@ export default function SeccionArtistasParecidos({ ctx, nav }) {
       for (const c of await exitos(a)) {
         try {
           const videoId = await resolverVideo(ctxRef.current.buscarExterno, c);
-          await ctxRef.current.agregarExterno({ titulo: c.titulo, artista: c.artista, videoId });
+          await ctxRef.current.agregarExterno({ titulo: c.titulo, artista: c.artista, videoId, coverUrl: c.cover });
           n += 1;
         } catch {
           // una canción que falla no corta las demás

@@ -1,17 +1,20 @@
 // src/movil/pantallas/PopularesArtista.jsx
 // «Populares» bajo la lista de un artista con pocas canciones propias: sus éxitos de Deezer
-// (sin las que ya tienes). ▶ las escucha sin añadirlas; + las añade. Si falla la red, no sale.
+// (sin las que ya tienes). Tocar la fila (▶ incluido) las escucha sin añadirlas, al momento y
+// seguidas, como las de la pestaña Populares; + las añade. Si falla la red, no sale.
 import { useEffect, useMemo, useState } from 'react';
 import FilaCancion from '../FilaCancion.jsx';
 import { IconoM } from '../iconos.jsx';
 import { cargarConCache, HORA_MS } from '../inicio/cache.js';
 import { deezerConIds, useAccionesExternas } from '../inicio/externas.js';
 import { norm } from '../inicio/claves.js';
-import { LIMITE_POPULARES, popularesSinLasPropias } from '../populares.js';
+import { esLaQueSuena } from '../cancionSonando.js';
+import { LIMITE_POPULARES, pistasDeDeezer, popularesSinLasPropias } from '../populares.js';
 
 export default function PopularesArtista({ ctx, nombre, propias }) {
   const [lista, setLista] = useState(undefined); // undefined = cargando, null = falló
-  const { estados, escuchar, agregar } = useAccionesExternas(ctx, `Éxitos de ${nombre}`);
+  const etiqueta = `Éxitos de ${nombre}`;
+  const { estados, agregar } = useAccionesExternas(ctx, etiqueta);
 
   useEffect(() => {
     let vivo = true;
@@ -33,6 +36,7 @@ export default function PopularesArtista({ ctx, nombre, propias }) {
   }, [nombre]);
 
   const visibles = useMemo(() => (lista ? popularesSinLasPropias(lista, propias) : []), [lista, propias]);
+  const pistas = useMemo(() => pistasDeDeezer(visibles), [visibles]);
 
   if (lista === null || (lista && visibles.length === 0)) return null;
   return (
@@ -47,16 +51,17 @@ export default function PopularesArtista({ ctx, nombre, propias }) {
           ))}
         </div>
       ) : (
-        visibles.map((c) => {
+        visibles.map((c, i) => {
           const yaEsta = estados[c.id] === 'ok';
           return (
             <FilaCancion
               key={c.id}
               track={c}
               meta={{ coverUrl: c.cover }}
-              activa={false}
+              activa={esLaQueSuena(ctx.trackActual, c)}
+              pausada={!ctx.sonando}
               derecha={<IconoM nombre="play" tamano={18} />}
-              onTocar={() => escuchar(c)}
+              onTocar={() => ctx.reproducirLista(pistas[i], pistas, etiqueta)}
               iconoMas={yaEsta ? 'check' : 'mas'}
               etiquetaMas={yaEsta ? 'Añadida a tu biblioteca' : 'Añadir a mi biblioteca'}
               onMas={() => !yaEsta && estados[c.id] !== 'cargando' && agregar(c)}

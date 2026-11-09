@@ -1,6 +1,7 @@
 // src/data/catalogo-local.js
 import { pedidoJsonp } from './lib/jsonp.js';
 import { obtenerBibliotecaLocal } from './biblioteca-local.js';
+import { obtenerValorConfig } from './lib/db.js';
 
 const BASE = 'https://api.deezer.com';
 
@@ -102,9 +103,12 @@ export async function obtenerArtista(nombre) {
 }
 
 export async function obtenerArtistasFotos() {
-  // Sin caché de servidor que consultar en esta fase — ver nota de
-  // "Simplificación deliberada" arriba del Task.
-  return { fotos: {} };
+  // Fotos que el móvil buscó para artistas sin foto (completarFotosArtistas);
+  // los no encontrados (url null) no se devuelven.
+  const guardadas = await obtenerValorConfig('fotosArtistas', {});
+  const fotos = {};
+  for (const [nombre, foto] of Object.entries(guardadas ?? {})) if (foto?.url) fotos[nombre] = foto.url;
+  return { fotos };
 }
 
 export async function obtenerTendencias(genero = '0') {

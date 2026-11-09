@@ -6,7 +6,7 @@ import kotlin.math.sin
 /**
  * Factor de volumen (0..1) del fundido entre canciones. Lógica pura, sin Android, con test.
  * El fundido total de N s se reparte: la canción que acaba baja durante N/2 y la siguiente
- * sube durante N/2 (curva de potencia constante, suena más natural que una recta).
+ * sube durante N/2 (curva suave). En el corte el volumen vale [PISO] (la mitad), no cero.
  */
 object CurvaFundido {
     /**
@@ -30,5 +30,17 @@ object CurvaFundido {
         return f
     }
 
-    private fun curva(x: Float): Float = sin(x.coerceIn(0f, 1f) * (PI.toFloat() / 2f))
+    /**
+     * ¿La pista que entra tras un salto de posición sube con fundido? ExoPlayer avisa del salto antes que
+     * de la transición: decidirlo solo en la transición deja un instante a volumen pleno en mitad del fundido.
+     * Dentro de la misma pista (repetir, saltar) no cambia nada.
+     */
+    @JvmStatic
+    fun entradaTrasSalto(automatico: Boolean, idAntes: String?, idDespues: String?, fundible: Boolean, entradaActual: Boolean): Boolean =
+        if (idAntes == idDespues) entradaActual else automatico && fundible
+
+    /** Volumen mínimo en el corte entre canciones: a la mitad, nunca a cero (con cero se oía un hueco, sobre todo con cascos). */
+    const val PISO = 0.5f
+
+    private fun curva(x: Float): Float = PISO + (1f - PISO) * sin(x.coerceIn(0f, 1f) * (PI.toFloat() / 2f))
 }

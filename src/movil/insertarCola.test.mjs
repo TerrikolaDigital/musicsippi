@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { insertarDespues, agregarAlFinal } from './insertarCola.js';
+import { insertarDespues, agregarAlFinal, barajarConNuevas } from './insertarCola.js';
 
 const t = (...ids) => ids.map((id) => ({ id }));
 const ids = (c) => c.map((x) => x.id);
@@ -42,4 +42,15 @@ test('agregarAlFinal con cola vacía arranca; con cola añade todas al final', (
   const r = agregarAlFinal(t('x', 'y'), 0, t('a', 'b'));
   assert.deepEqual(ids(r.cola), ['x', 'y', 'a', 'b']);
   assert.equal(r.indice, 0);
+});
+
+test('barajarConNuevas no toca lo ya sonado ni la actual y baraja el resto junto con las nuevas', () => {
+  const alReves = (l) => [...l].reverse();
+  const r = barajarConNuevas(t('a', 'b', 'c', 'd'), 1, t('e', 'f'), alReves);
+  assert.deepEqual(ids(r), ['a', 'b', 'f', 'e', 'd', 'c']);
+});
+
+test('barajarConNuevas sin nada nuevo devuelve la misma cola', () => {
+  const cola = t('a', 'b');
+  assert.equal(barajarConNuevas(cola, 0, [], (l) => l), cola);
 });

@@ -53,6 +53,27 @@ export async function guardarArchivo(nombre, contenido) {
   return (await ReproductorNativo.guardarArchivo({ nombre, rutaTemporal })).guardado === true;
 }
 
+/** Pide al usuario un archivo de destino persistente; devuelve su URI o null si cancela. */
+export async function elegirDestinoCopia(nombre) {
+  return (await ReproductorNativo.elegirDestinoCopia({ nombre })).uri ?? null;
+}
+
+/** Sobrescribe el destino persistente; rechaza con message 'sin-permiso' o 'no-encontrado'. */
+export async function escribirEnDestino(uri, contenido) {
+  const trozos = trocearTexto(contenido);
+  let rutaTemporal = null;
+  for (let i = 0; i < Math.max(trozos.length, 1); i++) {
+    rutaTemporal = (await ReproductorNativo.escribirTemporal({ nombre: 'copia-auto.json', trozo: trozos[i] ?? '', inicio: i === 0 })).ruta;
+  }
+  const { bytes, sha256 } = await ReproductorNativo.escribirEnDestino({ uri, rutaTemporal });
+  return { bytes, sha256 };
+}
+
+/** Suelta el permiso persistente del destino. */
+export async function liberarDestinoCopia(uri) {
+  await ReproductorNativo.liberarDestinoCopia({ uri });
+}
+
 /** Base64 (sin prefijo data:) de un Blob. */
 function blobABase64(blob) {
   return new Promise((resolve, reject) => {

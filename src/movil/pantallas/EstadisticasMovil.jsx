@@ -3,6 +3,7 @@
 // historial de reproducciones. Los cálculos viven en ../estadisticas.js (puro, con tests).
 import { useMemo, useState } from 'react';
 import SubpantallaMovil from './SubpantallaMovil.jsx';
+import { esLaQueSuena } from '../cancionSonando.js';
 import EstadoVacio from '../EstadoVacio.jsx';
 import Pestanas from '../Pestanas.jsx';
 import FilaCancion from '../FilaCancion.jsx';
@@ -89,7 +90,7 @@ export default function EstadisticasMovil({ ctx, nav }) {
                   track={track}
                   meta={c.track ? ctx.metadataDe(c.track.trackIdReal ?? c.track.id) : null}
                   derecha={`${c.n}×`}
-                  activa={!!c.track && ctx.trackActual?.id === c.track.id}
+                  activa={esLaQueSuena(ctx.trackActual, c.track)}
                   pausada={!ctx.sonando}
                   onTocar={() => c.track && ctx.reproducirLista(c.track, r.topCanciones.map((x) => x.track).filter(Boolean), 'Tus estadísticas')}
                   onMas={() => c.track && nav.abrirCapa({ tipo: 'hoja', trackId: c.track.id })}

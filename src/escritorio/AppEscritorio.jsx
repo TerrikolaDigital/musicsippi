@@ -1,16 +1,54 @@
-import { useLayoutEffect } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { traducirError } from '../../scripts/lib/traducir-error.mjs';
 import { confirmarModos } from '../data/modos.js';
 import { colorDeEje, formatearTitulo } from '../ui/formato.js';
 import PanelLetras from '../PanelLetras.jsx';
 import { Icono } from './compartido.jsx';
 import { OnboardingTour, PantallaRevisionModos, ClasificacionAsistida, TarjetaModo, duracionLarga, FotoOIniciales, Reproductor, VistaAlbum, VistaArtista, Buscador, Historial, Administrar, BarraReproductor } from './componentes.jsx';
+import { IconoC } from './iconosCorriente.jsx';
+import { TuSemana, Estadisticas } from './ResumenEstadisticas.jsx';
+import Corriente from '../movil/Corriente.jsx';
+import { saludo } from '../movil/formato.js';
+import './corriente.css';
+
+// Destinos de la orilla, en el orden de la maqueta. `sep` = hueco entre grupos.
+const DESTINOS_ORILLA = [
+  { id: 'inicio', texto: 'Inicio', icono: 'inicio' },
+  { id: 'favoritas', texto: 'Favoritas', icono: 'corazon' },
+  { id: 'artistas', texto: 'Artistas', icono: 'artista' },
+  { id: 'listas', texto: 'Listas', icono: 'lista' },
+  { id: 'albumes', texto: 'Álbumes', icono: 'disco' },
+  { id: 'explorar', texto: 'Explorar', icono: 'explorar', tour: 'explorar' },
+  { sep: 'sep1' },
+  { id: 'recientes', texto: 'Recientes', icono: 'reloj' },
+  { id: 'semana', texto: 'Tu semana', icono: 'semana' },
+  { id: 'estadisticas', texto: 'Estadísticas', icono: 'barras' },
+  { id: 'configuracion', texto: 'Configuración', icono: 'ajustes', tour: 'configuracion' },
+  { id: 'ayuda', texto: 'Ayuda', icono: 'ayuda' },
+];
 
 /**
  * Interfaz de escritorio: el JSX que antes devolvía App() fuera del móvil. Se carga
  * perezosa (React.lazy) para que el móvil no la descargue ni la evalúe. Todo el estado
  * sigue viviendo en App(); llega por `ctx`, igual que ShellMovil.
  */
+// Dos portadas inclinadas del hero (−7° y 9°). Sin portadas, dos placas del color
+// del modo para que el hero no quede vacío.
+function HeroPortadas({ covers }) {
+  const dos = [covers[1] ?? null, covers[0] ?? null];
+  return (
+    <div className="hero-modo-portadas" aria-hidden="true">
+      {dos.map((url, i) =>
+        url ? (
+          <img key={i} src={url} alt="" onError={(e) => { e.currentTarget.style.visibility = 'hidden'; }} />
+        ) : (
+          <span key={i} className="hero-modo-portada-vacia" />
+        )
+      )}
+    </div>
+  );
+}
+
 export default function AppEscritorio({ ctx }) {
   const {
     abrirAlbum,
@@ -42,8 +80,6 @@ export default function AppEscritorio({ ctx }) {
     avisoSincronizacion,
     buscar,
     busqueda,
-    cabeceraInnerRef,
-    cabeceraOuterRef,
     cambiarVolumen,
     casiNoEscuchas,
     cerrarLetras,
@@ -119,7 +155,7 @@ export default function AppEscritorio({ ctx }) {
     setMostrarOnboarding,
     setParaEscucharExpandido,
     setRedescubrirExpandido,
-    setRepetir,
+    alternarRepetir,
     setRevisionModos,
     setTabConfiguracion,
     setVerLetras,
@@ -142,13 +178,125 @@ export default function AppEscritorio({ ctx }) {
     volverAtras,
   } = ctx;
 
-  // App() mide la cabecera en un layout effect; con el chunk perezoso el nodo aún no
-  // existía en su primer render, así que avisamos al montarnos para que la mida.
-  useLayoutEffect(() => {
-    ctx.alMontar?.();
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  // Qué destino de la orilla está activo: mismos criterios que tenían antes los
+  // botones de la cabecera y del submenú.
+  const destinoActivo =
+    vista === 'modos'
+      ? 'inicio'
+      : vista === 'reproductor' && ejeVista?.id === 'favoritos'
+        ? 'favoritas'
+        : vista === 'buscar' && modoBuscador === 'artistas'
+          ? 'artistas'
+          : vista === 'buscar' && modoBuscador === 'listas'
+            ? 'listas'
+            : vista === 'buscar' && modoBuscador === 'albumes'
+              ? 'albumes'
+              : vista === 'buscar' && modoBuscador === 'agregar'
+                ? 'explorar'
+                : vista === 'historial'
+                  ? 'recientes'
+                  : vista === 'semana'
+                    ? 'semana'
+                    : vista === 'estadisticas'
+                      ? 'estadisticas'
+                  : vista === 'administrar'
+                    ? tabConfiguracion === 'ayuda'
+                      ? 'ayuda'
+                      : tabConfiguracion === 'movil'
+                        ? null // lo marca el botón «Sincronizar con el móvil»
+                        : 'configuracion'
+                    : null;
 
-  return <div className="app">
+  function irA(destino) {
+    if (destino === 'inicio') setVista('modos');
+    else if (destino === 'favoritas') {
+      if (favoritosEje) entrarAModo(favoritosEje);
+    } else if (destino === 'artistas' || destino === 'listas' || destino === 'albumes') {
+      setVista('buscar');
+      setModoBuscador(destino);
+    } else if (destino === 'explorar') {
+      setVista('buscar');
+      setModoBuscador('agregar');
+    } else if (destino === 'recientes') setVista('historial');
+    else if (destino === 'semana') setVista('semana');
+    else if (destino === 'estadisticas') setVista('estadisticas');
+    else if (destino === 'configuracion') {
+      // 'modos' es la primera pestaña real: si tabConfiguracion quedó en 'ayuda',
+      // sin esto «Configuración» seguiría mostrando Ayuda.
+      setTabConfiguracion('modos');
+      setVista('administrar');
+    } else if (destino === 'ayuda') {
+      setTabConfiguracion('ayuda');
+      setVista('administrar');
+    }
+  }
+
+  // Última vez que el móvil bajó la biblioteca de este PC (/api/estado-sync-movil,
+  // ver vite.config.js). undefined = consultando; null = nunca / sin servidor.
+  const [ultimaSync, setUltimaSync] = useState(undefined);
+  useEffect(() => {
+    let vivo = true;
+    const leer = () =>
+      fetch('/api/estado-sync-movil')
+        .then((r) => (r.ok ? r.json() : Promise.reject(new Error('sin estado'))))
+        .then((j) => vivo && setUltimaSync(j.ultima ?? null))
+        .catch(() => vivo && setUltimaSync((u) => (u === undefined ? null : u)));
+    leer();
+    const t = setInterval(leer, 15000);
+    return () => {
+      vivo = false;
+      clearInterval(t);
+    };
+  }, []);
+  const textoUltimaSync =
+    ultimaSync === undefined
+      ? 'Consultando…'
+      : ultimaSync
+        ? `Última sincronización: ${new Date(ultimaSync).toLocaleString('es', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}`
+        : 'Todavía sin sincronizar';
+  function irASincronizar() {
+    setTabConfiguracion('movil');
+    setVista('administrar');
+  }
+
+  const cauceRef = useRef(null);
+  const navRef = useRef(null);
+  const indRef = useRef(null);
+  const buscadorRef = useRef(null);
+
+  // Indicador activo de la orilla: se desliza con transform hasta el botón activo
+  // (260 ms --ease-mover, ver .orilla-ind). Sin destino activo se desvanece.
+  useLayoutEffect(() => {
+    const ind = indRef.current;
+    const boton = navRef.current?.querySelector(`[data-destino="${destinoActivo}"]`);
+    if (!ind) return;
+    if (!boton) {
+      ind.style.opacity = '0';
+      return;
+    }
+    ind.style.transform = `translateY(${boton.offsetTop}px)`;
+    ind.style.opacity = '1';
+  }, [destinoActivo]);
+
+  // Al cambiar de pantalla el cauce vuelve arriba (antes lo hacía solo el body).
+  useLayoutEffect(() => {
+    if (cauceRef.current) cauceRef.current.scrollTop = 0;
+  }, [vista, modoBuscador, ejeVista?.id, album, artista, tabConfiguracion]);
+
+  // Ctrl K (o Cmd K) lleva al buscador de la orilla.
+  useEffect(() => {
+    function alTeclear(e) {
+      if ((e.ctrlKey || e.metaKey) && !e.altKey && e.key.toLowerCase() === 'k') {
+        e.preventDefault();
+        buscadorRef.current?.focus();
+        buscadorRef.current?.select();
+      }
+    }
+    window.addEventListener('keydown', alTeclear);
+    return () => window.removeEventListener('keydown', alTeclear);
+  }, []);
+
+  return <div className="app app-escritorio">
       {mostrarOnboarding && (
         <OnboardingTour onCerrar={cerrarOnboarding} esDemo={esDemo} onIrADestino={irADestinoTour} />
       )}
@@ -168,6 +316,96 @@ export default function AppEscritorio({ ctx }) {
           }}
           onCancelar={() => setRevisionModos(null)}
         />
+      )}
+      {clasificacionAsistida && (
+        <ClasificacionAsistida
+          tracks={tracks}
+          ejes={ejes}
+          metadataDe={metadataDe}
+          onAsignar={asignarManual}
+          onCrearEje={crearEje}
+          onCerrar={() => setClasificacionAsistida(false)}
+          sonandoPrincipal={sonando}
+          onPausarPrincipal={pausar}
+        />
+      )}
+      {/* Orilla: barra lateral fija con la marca, el buscador y TODA la navegación
+          (antes cabecera + submenú + iconos sueltos). Los onClick y el criterio de
+          «activo» son los mismos de antes, uno a uno. Ver
+          docs/maquetas/escritorio-v4-corriente.md (decisión 1). */}
+      {/* Electron oculta la barra de título nativa: franja de arrastre arriba del
+          cauce (en el navegador no hace falta y no se dibuja). */}
+      {typeof window !== 'undefined' && window.musicsippi && <div className="arrastre-ventana" aria-hidden="true" />}
+      <aside className="orilla">
+        <button className="marca" onClick={() => setVista('modos')} aria-label="Musicsippi, ir a Inicio">
+          <span className="marca-insignia" aria-hidden="true">
+            <IconoC nombre="ondas" tamano={18} />
+          </span>
+          <span>
+            Music<i>sippi</i>
+          </span>
+        </button>
+        {/* Escribir arranca la búsqueda directo (igual que antes en la cabecera). */}
+        <label className="orilla-buscador">
+          <IconoC nombre="buscar" tamano={17} />
+          <input
+            ref={buscadorRef}
+            type="search"
+            value={busqueda}
+            onChange={(e) => {
+              setBusqueda(e.target.value);
+              setModoBuscador('texto');
+              setVista('buscar');
+            }}
+            placeholder="Buscar"
+            aria-label="Buscá en tu biblioteca"
+          />
+          <kbd aria-hidden="true">Ctrl K</kbd>
+        </label>
+        <nav className="orilla-nav" ref={navRef} aria-label="Navegación principal" data-tour="modos">
+          <span className="orilla-ind" ref={indRef} aria-hidden="true" />
+          {DESTINOS_ORILLA.map((d) =>
+            d.sep ? (
+              <span key={d.sep} className="orilla-sep" aria-hidden="true" />
+            ) : (
+              <button
+                key={d.id}
+                className={destinoActivo === d.id ? 'activo' : ''}
+                aria-current={destinoActivo === d.id ? 'page' : undefined}
+                data-destino={d.id}
+                data-tour={d.tour}
+                onClick={() => irA(d.id)}
+              >
+                <IconoC nombre={d.icono} tamano={20} />
+                <span>{d.texto}</span>
+              </button>
+            )
+          )}
+        </nav>
+        <button
+          className={`orilla-sync${vista === 'administrar' && tabConfiguracion === 'movil' ? ' activo' : ''}`}
+          onClick={irASincronizar}
+          aria-current={vista === 'administrar' && tabConfiguracion === 'movil' ? 'page' : undefined}
+          title="Abrir la sincronización con el móvil"
+        >
+          <IconoC nombre="movil" tamano={20} />
+          <span className="orilla-sync-texto">
+            <b>Sincronizar con el móvil</b>
+            <small>{textoUltimaSync}</small>
+          </span>
+        </button>
+      </aside>
+
+      {/* Cauce: el único lugar que scrollea (la orilla queda fija). Reserva al
+          final el alto de la barra del reproductor, que flota encima. */}
+      <div className="cauce" ref={cauceRef}>
+      {/* Único lugar donde vive este aviso: visible sin importar `vista`. Sin
+          nombrar servicios de terceros (pedido explícito). */}
+      {estadoEnriquecimiento?.activo && (
+        <p className="aviso-sin-clasificar aviso-app-wide">
+          Organizando tu biblioteca: {estadoEnriquecimiento.procesados}/{estadoEnriquecimiento.total} canciones.
+          Cuando termine, tus modos se arman solos.
+        </p>
       )}
       {/* Discreto, no bloqueante — mismo espíritu que avisoSalto: una franja
           arriba del contenido, nunca un modal encima de todo. Solo aparece si
@@ -192,206 +430,6 @@ export default function AppEscritorio({ ctx }) {
           </button>
         </p>
       )}
-      {clasificacionAsistida && (
-        <ClasificacionAsistida
-          tracks={tracks}
-          ejes={ejes}
-          metadataDe={metadataDe}
-          onAsignar={asignarManual}
-          onCrearEje={crearEje}
-          onCerrar={() => setClasificacionAsistida(false)}
-          sonandoPrincipal={sonando}
-          onPausarPrincipal={pausar}
-        />
-      )}
-      {/* .app-cabecera agrupa TODO el menú principal (aviso + cabecera +
-          pestañas de abajo) en una sola pieza sticky — se encoge sola al
-          bajar y vuelve a aparecer al subir (ver aplicarAlturaCabecera más
-          arriba), en vez de quedar fija ocupando espacio para siempre.
-          Antes .submenu vivía afuera de este contenedor y no era sticky: al
-          scrollear se perdía de vista (ver
-          docs/superpowers/specs/2026-09-15-shell-scroll-unico-design.md). */}
-      <div className="app-cabecera" ref={cabeceraOuterRef}>
-      {/* Envoltorio solo para medir el alto real con ResizeObserver — el
-          alto que `.app-cabecera` ocupa es el de ESTE div, no el suyo
-          propio (el suyo se muta directo por ref, ver aplicarAlturaCabecera
-          más arriba). */}
-      <div ref={cabeceraInnerRef}>
-      {/* Antes el aviso y <header> eran DOS elementos sticky top:0
-          independientes y competían por la misma posición al hacer scroll
-          (el header terminaba tapando el aviso, o viceversa, según
-          z-index). Agrupados acá adentro, ambos se apilan siempre en el
-          mismo orden — el sticky real ahora vive en `.app-cabecera`. */}
-      <div className="fijo-arriba">
-      {/* Único lugar donde vive este aviso — antes estaba duplicado en Home y
-          en Configuración por separado. Pedido explícito: es lo bastante
-          relevante como para no perderlo de vista al cambiar de pantalla, así
-          que vive acá arriba de <header>, visible sin importar `vista`. */}
-      {estadoEnriquecimiento?.activo && (
-        <p className="aviso-sin-clasificar aviso-app-wide">
-          {/* Sin nombrar Deezer/MusicBrainz — pedido explícito: a quien usa la
-              app no le dice nada de qué servicio corre por detrás, y encima
-              antes no explicaba QUÉ pasa cuando termina (que los modos se
-              arman solos) — nadie lo sabía si no preguntaba. */}
-          Organizando tu biblioteca: {estadoEnriquecimiento.procesados}/{estadoEnriquecimiento.total} canciones.
-          Cuando termine, tus modos se arman solos.
-        </p>
-      )}
-      <header className="cabecera">
-        {/* "Musicsippi", no "Modos": Modos es una sección de la app (la home con
-            las tarjetas), no el nombre de la app entera. Antes esta palabra
-            aparecía como si fuera la marca, en el lugar donde cualquier app
-            muestra su nombre/logo. */}
-        <button className="titulo" onClick={() => setVista('modos')}>
-          <img className="titulo-icono" src="/favicon.png" alt="" aria-hidden="true" />
-          {/* Un solo elemento envolviendo "Music"+"sippi": .titulo es flex con
-              gap — sin este wrapper, "Music" y el <span> son dos hijos flex
-              separados y el gap se metía TAMBIÉN entre las dos mitades del
-              nombre, separándolo como si fueran dos palabras. */}
-          <span>
-            Music<span className="titulo-acento">sippi</span>
-          </span>
-        </button>
-        {/* Antes esto era un botón "🔍 Buscar" que llevaba a la pantalla de
-            buscador — la barra real de acá reemplaza al botón: escribir
-            arranca la búsqueda directo, sin un paso intermedio, y está
-            siempre visible arriba en vez de vivir solo en el Home. */}
-        <label className="cabecera-buscador">
-          <span className="cabecera-buscador-icono" aria-hidden="true">
-            <Icono nombre="buscar" tamano={14} />
-          </span>
-          <input
-            type="search"
-            value={busqueda}
-            onChange={(e) => {
-              setBusqueda(e.target.value);
-              setModoBuscador('texto');
-              setVista('buscar');
-            }}
-            placeholder="Buscá en tu biblioteca…"
-          />
-        </label>
-        {/* Solo ícono, sin texto — pedido explícito para despejar la barra.
-            title/aria-label se quedan: son la única forma de saber qué hace
-            cada botón sin el label visible. */}
-        <nav className="nav-iconos">
-          <button
-            className={vista === 'historial' ? 'activo' : ''}
-            onClick={() => setVista('historial')}
-            title="Recientes y más sonados"
-            aria-label="Recientes y más sonados"
-          >
-            <Icono nombre="historial" tamano={18} />
-          </button>
-          {/*
-            Antes "Sin clasificar" y "Editar ejes" eran dos botones sueltos, al
-            mismo nivel que "Modos" — es decir, la navegación de alguien que solo
-            quiere escuchar música mezclada con la de quien administra la
-            biblioteca. Para una app pensada para compartir, eso confunde a
-            cualquiera que no sea el dueño. Ahora es una sola entrada, separada
-            arquitectónicamente (ver Administrar más abajo), lista para el día
-            que esto sea multiusuario sin reescribir la navegación.
-          */}
-          <button
-            className={vista === 'administrar' && tabConfiguracion !== 'ayuda' ? 'activo' : ''}
-            onClick={() => {
-              // Sin esto, si tabConfiguracion ya estaba en 'ayuda' (el valor
-              // inicial, ver más arriba), tocar "Configuración" no cambiaba
-              // nada y quedabas viendo Ayuda — el mismo bug para los dos
-              // botones. 'modos' es la primera pestaña real de la lista.
-              setTabConfiguracion('modos');
-              setVista('administrar');
-            }}
-            title="Configuración"
-            aria-label="Configuración"
-            data-tour="configuracion"
-          >
-            <Icono nombre="ajustes" tamano={18} />
-          </button>
-          <button
-            className={vista === 'administrar' && tabConfiguracion === 'ayuda' ? 'activo' : ''}
-            onClick={() => {
-              setTabConfiguracion('ayuda');
-              setVista('administrar');
-            }}
-            title="Ayuda"
-            aria-label="Ayuda"
-          >
-            <Icono nombre="ayuda" tamano={18} />
-          </button>
-        </nav>
-      </header>
-      </div>
-
-      {/*
-        Submenú fijo, siempre visible (fuera de cualquier `vista === ...`) —
-        pedido explícito: accesos directos con ícono + texto mínimo,
-        separados del cuadro de texto de arriba (que ahora es solo para
-        buscar, no para navegar). "Listas" reusa exactamente el mismo
-        criterio que "Mis listas" del Home (playlists + favoritos) — mismo
-        concepto, mismo nombre, pedido explícito de no tener dos términos
-        para lo mismo. "Canciones"/"Artistas"/"Explorar" reusan las pestañas
-        que antes vivían DENTRO del buscador (ver Buscador más abajo, ya no
-        tiene su propia navegación interna).
-      */}
-      <nav className="submenu" data-tour="modos">
-        <button
-          className={vista === 'reproductor' && ejeVista?.id === 'favoritos' ? 'activo' : ''}
-          onClick={() => {
-            if (favoritosEje) entrarAModo(favoritosEje);
-          }}
-        >
-          <Icono nombre="corazon" tamano={16} /> Favoritas
-        </button>
-        <button
-          className={vista === 'buscar' && modoBuscador === 'artistas' ? 'activo' : ''}
-          onClick={() => {
-            setVista('buscar');
-            setModoBuscador('artistas');
-          }}
-        >
-          <Icono nombre="personas" tamano={16} /> Artistas
-        </button>
-        <button
-          className={vista === 'buscar' && modoBuscador === 'listas' ? 'activo' : ''}
-          onClick={() => {
-            setVista('buscar');
-            setModoBuscador('listas');
-          }}
-        >
-          <Icono nombre="lista" tamano={16} /> Listas
-        </button>
-        <button
-          className={vista === 'buscar' && modoBuscador === 'albumes' ? 'activo' : ''}
-          onClick={() => {
-            setVista('buscar');
-            setModoBuscador('albumes');
-          }}
-        >
-          <Icono nombre="disco" tamano={16} /> Álbumes
-        </button>
-        <button
-          className={
-            vista === 'buscar' && modoBuscador === 'agregar' ? 'submenu-explorar activo' : 'submenu-explorar'
-          }
-          onClick={() => {
-            setVista('buscar');
-            setModoBuscador('agregar');
-          }}
-          data-tour="explorar"
-        >
-          <Icono nombre="explorar" tamano={16} /> Explorar
-        </button>
-      </nav>
-      </div>
-      </div>
-
-      {/* `.app-contenido` ya no tiene scroll propio — `body` volvió a ser el
-          único que scrollea (ver .app-cabecera más arriba y
-          docs/superpowers/specs/2026-09-15-shell-scroll-unico-design.md).
-          Envuelve el contenido de la vista actual. El nodo del reproductor
-          de YouTube ya no está acá: lo monta App() fuera del Suspense. */}
-      <div className="app-contenido">
 
       {vista === 'modos' && (
         <main className="modos modos-layout">
@@ -411,28 +449,73 @@ export default function AppEscritorio({ ctx }) {
             </p>
           )}
 
+          {/* v4: saludo en Fraunces y una línea de contexto (como el móvil). */}
+          <header className="inicio-saludo">
+            <h1 className="titulo-pantalla">{saludo()}</h1>
+            <p>
+              Tenés {tracks.length.toLocaleString('es-AR')} {tracks.length === 1 ? 'canción' : 'canciones'} de{' '}
+              {artistasBiblioteca.length.toLocaleString('es-AR')} {artistasBiblioteca.length === 1 ? 'artista' : 'artistas'}.
+            </p>
+          </header>
+
           {/*
             Inicio rápido: 4 accesos directos a experiencias frecuentes, no
             una quinta forma de navegar — pedido explícito. "Infinito"
             (sorprenderMe) y "Favoritas" (reproducirFavoritas) arrancan a
             sonar mezclado directo, simétricos entre sí — ninguno de los dos
-            solo navega. Los controles de Play/Aleatorio de cada lista/modo
-            ya existen adentro de cada uno — esto no los duplica.
+            solo navega. v4: formato «acceso» del móvil (icono de 42 px en
+            degradado + título + una línea).
           */}
-          <section className="inicio-rapido">
-            <h2>Inicio rápido</h2>
+          <section className="inicio-rapido" aria-label="Inicio rápido">
             <div className="inicio-rapido-grid">
               <button className="inicio-rapido-tile" onClick={reproducirFavoritas}>
-                <Icono nombre="corazon" tamano={20} />
-                <span>Favoritas</span>
+                <span className="acceso-ico acceso-fav" aria-hidden="true">
+                  <IconoC nombre="corazon" tamano={20} relleno />
+                </span>
+                <span className="acceso-txt">
+                  <b>Favoritas</b>
+                  <small>
+                    {favoritosEje
+                      ? `${conteos.get(favoritosEje.id) ?? 0} ${(conteos.get(favoritosEje.id) ?? 0) === 1 ? 'canción' : 'canciones'}`
+                      : 'Las que te gustan'}
+                  </small>
+                </span>
               </button>
               <button className="inicio-rapido-tile" onClick={() => setVista('historial')}>
-                <Icono nombre="historial" tamano={20} />
-                <span>Recientes</span>
+                <span className="acceso-ico acceso-rec" aria-hidden="true">
+                  <IconoC nombre="reloj" tamano={20} />
+                </span>
+                <span className="acceso-txt">
+                  <b>Recientes</b>
+                  <small>Lo último que sonó</small>
+                </span>
+              </button>
+              <button className="inicio-rapido-tile" onClick={() => setVista('semana')}>
+                <span className="acceso-ico acceso-sem" aria-hidden="true">
+                  <IconoC nombre="semana" tamano={20} />
+                </span>
+                <span className="acceso-txt">
+                  <b>Tu semana</b>
+                  <small>Tu resumen</small>
+                </span>
+              </button>
+              <button className="inicio-rapido-tile" onClick={() => irA('configuracion')}>
+                <span className="acceso-ico acceso-mood" aria-hidden="true">
+                  <IconoC nombre="moods" tamano={20} />
+                </span>
+                <span className="acceso-txt">
+                  <b>Moods</b>
+                  <small>Tus modos y listas</small>
+                </span>
               </button>
               <button className="inicio-rapido-tile" onClick={sorprenderMe} data-tour="infinito">
-                <Icono nombre="infinito" tamano={20} />
-                <span>Infinito</span>
+                <span className="acceso-ico acceso-inf" aria-hidden="true">
+                  <IconoC nombre="infinito" tamano={20} />
+                </span>
+                <span className="acceso-txt">
+                  <b>Infinito</b>
+                  <small>Sin parar</small>
+                </span>
               </button>
               <button
                 className="inicio-rapido-tile"
@@ -441,16 +524,21 @@ export default function AppEscritorio({ ctx }) {
                   setModoBuscador('agregar');
                 }}
               >
-                <Icono nombre="explorar" tamano={20} />
-                <span>Explorar</span>
+                <span className="acceso-ico acceso-exp" aria-hidden="true">
+                  <IconoC nombre="explorar" tamano={20} />
+                </span>
+                <span className="acceso-txt">
+                  <b>Explorar</b>
+                  <small>Música nueva</small>
+                </span>
               </button>
             </div>
           </section>
 
           {/* Orden de secciones por uso, no arbitrario: lo que se sigue
               escuchando primero (recencia real), después el destacado
-              automático, después el resto — misma lógica que se había
-              explorado en Lovable ("los modos con más peso primero"). */}
+              automático, después el resto (decisión 1 de la aprobación v4:
+              en escritorio se mantiene este orden). */}
           {seguidos.length > 0 && (
             <section>
               <h2>Seguí escuchando</h2>
@@ -475,47 +563,30 @@ export default function AppEscritorio({ ctx }) {
 
           {modoDestacado && (
             <section className="hero-modo-seccion" aria-label="Modo destacado">
-              <div className="hero-modo" style={{ '--color-modo': colorDeEje(modoDestacado) }}>
-                {(coversDeEje.get(modoDestacado.id) ?? [])[0] && (
-                  <img
-                    className="hero-modo-blur"
-                    src={coversDeEje.get(modoDestacado.id)[0]}
-                    alt=""
-                    aria-hidden="true"
-                    onError={(e) => { e.currentTarget.style.display = 'none'; }}
-                  />
-                )}
-                <div className="hero-modo-scrim" aria-hidden="true" />
-                <div className="hero-modo-contenido">
-                  <div className="hero-modo-collage">
-                    {(coversDeEje.get(modoDestacado.id) ?? []).length > 0 ? (
-                      coversDeEje.get(modoDestacado.id).map((url, i) => (
-                        <img key={i} src={url} alt="" onError={(e) => { e.currentTarget.style.display = 'none'; }} />
-                      ))
-                    ) : (
-                      <span className="hero-modo-collage-vacio" aria-hidden="true" />
-                    )}
-                  </div>
-                  <div>
-                    <p className="eyebrow">Modo del momento</p>
-                    <h2>{formatearTitulo(modoDestacado.nombre)}</h2>
-                    <p className="hero-modo-detalle">
-                      {conteos.get(modoDestacado.id) ?? 0} canciones
-                      {duracionLarga(duracionesTotales.get(modoDestacado.id) ?? 0) &&
-                        ` · ${duracionLarga(duracionesTotales.get(modoDestacado.id) ?? 0)}`}
-                    </p>
-                    <div className="hero-modo-botones">
-                      <button
-                        className="hero-modo-reproducir"
-                        onClick={() => alternarAleatorioYReproducir(modoDestacado, tracksDe(modoDestacado.id))}
-                      >
-                        ▶ Reproducir modo
-                      </button>
-                      <button className="hero-modo-ver" onClick={() => entrarAModo(modoDestacado)}>
-                        Ver las {conteos.get(modoDestacado.id) ?? 0} canciones
-                      </button>
-                    </div>
-                  </div>
+              <div className="hero-modo" style={{ '--c': colorDeEje(modoDestacado) }}>
+                <Corriente className="hero-modo-agua" ancho={900} alto={150} />
+                <HeroPortadas covers={coversDeEje.get(modoDestacado.id) ?? []} />
+                <p className="hero-modo-rotulo">
+                  <span className="hero-modo-punto" aria-hidden="true" />
+                  Modo del momento
+                </p>
+                <h2>{formatearTitulo(modoDestacado.nombre)}</h2>
+                <p className="hero-modo-detalle">
+                  {conteos.get(modoDestacado.id) ?? 0} canciones
+                  {duracionLarga(duracionesTotales.get(modoDestacado.id) ?? 0) &&
+                    ` · ${duracionLarga(duracionesTotales.get(modoDestacado.id) ?? 0)}`}
+                </p>
+                <div className="hero-modo-botones">
+                  <button
+                    className="hero-modo-reproducir"
+                    onClick={() => alternarAleatorioYReproducir(modoDestacado, tracksDe(modoDestacado.id))}
+                  >
+                    <IconoC nombre="play" tamano={22} relleno />
+                    Reproducir modo
+                  </button>
+                  <button className="hero-modo-ver" onClick={() => entrarAModo(modoDestacado)}>
+                    Ver las {conteos.get(modoDestacado.id) ?? 0} canciones
+                  </button>
                 </div>
               </div>
             </section>
@@ -523,30 +594,18 @@ export default function AppEscritorio({ ctx }) {
 
           {previaModoAleatoria && (
             <section className="hero-modo-seccion" aria-label="Vista previa de tus modos">
-              <div className="hero-modo hero-modo-preview" style={{ '--color-modo': colorDeEje(previaModoAleatoria) }}>
-                <img
-                  className="hero-modo-blur"
-                  src={coversDeEje.get(previaModoAleatoria.id)[0]}
-                  alt=""
-                  aria-hidden="true"
-                  onError={(e) => { e.currentTarget.style.display = 'none'; }}
-                />
-                <div className="hero-modo-scrim" aria-hidden="true" />
-                <div className="hero-modo-contenido">
-                  <div className="hero-modo-collage">
-                    {coversDeEje.get(previaModoAleatoria.id).map((url, i) => (
-                      <img key={i} src={url} alt="" onError={(e) => { e.currentTarget.style.display = 'none'; }} />
-                    ))}
-                  </div>
-                  <div>
-                    <p className="eyebrow">Muy pronto</p>
-                    <h2>Tus sugerencias personalizadas están en camino</h2>
-                    <p className="hero-modo-detalle">
-                      Estamos organizando tu biblioteca por género y por lo que más escuchás. Cuando termine, acá
-                      va a aparecer un modo armado solo con tu música, como este de ejemplo ({formatearTitulo(previaModoAleatoria.nombre)}).
-                    </p>
-                  </div>
-                </div>
+              <div className="hero-modo hero-modo-preview" style={{ '--c': colorDeEje(previaModoAleatoria) }}>
+                <Corriente className="hero-modo-agua" ancho={900} alto={150} />
+                <HeroPortadas covers={coversDeEje.get(previaModoAleatoria.id) ?? []} />
+                <p className="hero-modo-rotulo">
+                  <span className="hero-modo-punto" aria-hidden="true" />
+                  Muy pronto
+                </p>
+                <h2>Tus sugerencias personalizadas están en camino</h2>
+                <p className="hero-modo-detalle">
+                  Estamos organizando tu biblioteca por género y por lo que más escuchás. Cuando termine, acá
+                  va a aparecer un modo armado solo con tu música, como este de ejemplo ({formatearTitulo(previaModoAleatoria.nombre)}).
+                </p>
               </div>
             </section>
           )}
@@ -555,10 +614,10 @@ export default function AppEscritorio({ ctx }) {
             <h2>
               Mis listas
               <button className="h2-accion" onClick={crearListaRapida}>
-                ＋ Crear lista
+                <IconoC nombre="anadir" tamano={16} /> Crear lista
               </button>
               {!listasExpandidas && misListasHome.length > 0 && (
-                <button className="h2-accion" onClick={() => setListasExpandidas(true)}>
+                <button className="h2-accion h2-ver" onClick={() => setListasExpandidas(true)}>
                   Ver todas ({misListasHome.length})
                 </button>
               )}
@@ -596,7 +655,7 @@ export default function AppEscritorio({ ctx }) {
                 Para escuchar
                 {seguidas.length > 0 && <small>incluye playlists que seguís, no armadas por vos</small>}
                 {!paraEscucharExpandido && paraEscuchar.length > 0 && (
-                  <button className="h2-accion" onClick={() => setParaEscucharExpandido(true)}>
+                  <button className="h2-accion h2-ver" onClick={() => setParaEscucharExpandido(true)}>
                     Ver todas ({paraEscuchar.length})
                   </button>
                 )}
@@ -625,7 +684,7 @@ export default function AppEscritorio({ ctx }) {
               <h2>
                 Redescubrí <small>lo tenés en tu biblioteca pero casi no lo escuchás</small>
                 {!redescubrirExpandido && casiNoEscuchas.length > 0 && (
-                  <button className="h2-accion" onClick={() => setRedescubrirExpandido(true)}>
+                  <button className="h2-accion h2-ver" onClick={() => setRedescubrirExpandido(true)}>
                     Ver todas ({casiNoEscuchas.length})
                   </button>
                 )}
@@ -660,7 +719,7 @@ export default function AppEscritorio({ ctx }) {
                 setVista('buscar');
               }}
             >
-              Ver todos →
+              Ver todos
             </button>
             <small>
               {tracks.length} canciones · {artistasBiblioteca.length} artistas
@@ -826,6 +885,14 @@ export default function AppEscritorio({ ctx }) {
         />
       )}
 
+      {vista === 'semana' && (
+        <TuSemana ctx={ctx} onIrAEstadisticas={() => setVista('estadisticas')} onIrABuscar={() => setVista('buscar')} />
+      )}
+
+      {vista === 'estadisticas' && (
+        <Estadisticas ctx={ctx} onIrASemana={() => setVista('semana')} onIrABuscar={() => setVista('buscar')} />
+      )}
+
       {vista === 'administrar' && (
         <Administrar
           ejes={ejes}
@@ -890,7 +957,7 @@ export default function AppEscritorio({ ctx }) {
           anterior={() => setIndice((i) => Math.max(0, i - 1))}
           siguiente={siguiente}
           repetir={repetir}
-          setRepetir={setRepetir}
+          alternarRepetir={alternarRepetir}
           aleatorio={aleatorio}
           setAleatorio={alternarAleatorioCola}
           posicion={`${indice + 1} / ${cola.length}`}
@@ -898,6 +965,7 @@ export default function AppEscritorio({ ctx }) {
           fijarTemporizador={fijarTemporizador}
           onRadio={iniciarRadio}
           onVerLetras={() => setVerLetras(true)}
+          modoOrigen={ejeActivo}
           metadata={{
             ...metadataDe(trackActual.trackIdReal ?? trackActual.id),
             // Fallback al coverUrl que trae el track "de mentira" armado por

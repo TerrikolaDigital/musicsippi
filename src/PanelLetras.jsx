@@ -52,12 +52,12 @@ function Palabras({ palabras, t }) {
 // tocar una línea salta a ese momento. Si solo hay letra plana, se muestra tal cual.
 export default function PanelLetras({ track, album, duracion, tiempo, buscar, onCerrar, incrustado = false }) {
   const [estado, setEstado] = useState({ cargando: true });
-  // Solo el panel del móvil (incrustado) trae proveedor a elegir y traducción.
+  // Traducir, en los dos; elegir proveedor, solo en el panel del móvil (incrustado).
   const [hoja, setHoja] = useState(false);
   const [buscando, setBuscando] = useState(null);
   const [avisoHoja, setAvisoHoja] = useState(null);
   const [ajusteAbierto, setAjusteAbierto] = useState(false);
-  const [traducir, setTraducir] = useState(() => incrustado && leerPreferenciaTraduccion());
+  const [traducir, setTraducir] = useState(() => leerPreferenciaTraduccion());
   const [trad, setTrad] = useState(null);
   const [avisoTrad, setAvisoTrad] = useState(false);
   const activaRef = useRef(null);
@@ -98,7 +98,7 @@ export default function PanelLetras({ track, album, duracion, tiempo, buscar, on
     setTrad(null);
     setAvisoTrad(false);
     const letra = estado.letra;
-    if (!incrustado || !traducir || !letra) return undefined;
+    if (!traducir || !letra) return undefined;
     const textos = letra.sincronizada ? letra.sincronizada.map((l) => l.texto) : letra.plana ? letra.plana.split('\n') : null;
     if (!textos) return undefined;
     let cancelado = false;
@@ -161,9 +161,21 @@ export default function PanelLetras({ track, album, duracion, tiempo, buscar, on
             <p className="panel-letras-titulo">{titulo}</p>
             <p className="panel-letras-artista">{artista}</p>
           </div>
-          <button onClick={onCerrar} aria-label="Cerrar letra">
-            ✕
-          </button>
+          <div className="panel-letras-acciones">
+            <button
+              type="button"
+              className={traducir ? 'activo' : undefined}
+              aria-pressed={traducir}
+              aria-label={traducir ? 'Ocultar la traducción al español' : 'Traducir la letra al español'}
+              title={traducir ? 'Ocultar la traducción' : 'Traducir al español'}
+              onClick={alternarTraduccion}
+            >
+              <IconoTraducir />
+            </button>
+            <button onClick={onCerrar} aria-label="Cerrar letra">
+              ✕
+            </button>
+          </div>
         </header>
       )}
       <div className="panel-letras-cuerpo">
@@ -199,7 +211,7 @@ export default function PanelLetras({ track, album, duracion, tiempo, buscar, on
             ))}
           </div>
         )}
-        {incrustado && traducir && avisoTrad && (
+        {traducir && avisoTrad && (
           <p className="panel-letras-aviso" role="status">No se pudo traducir</p>
         )}
       </div>
@@ -215,7 +227,7 @@ export default function PanelLetras({ track, album, duracion, tiempo, buscar, on
         </div>
       )}
       <div className="panel-letras-pie">
-        <p className="panel-letras-fuente">{estado.letra ? etiquetaFuente(estado.letra) + (incrustado && traducir && trad ? ' · Traducida al español' : '') : ''}</p>
+        <p className="panel-letras-fuente">{estado.letra ? etiquetaFuente(estado.letra) + (traducir && trad ? ' · Traducida al español' : '') : ''}</p>
         {incrustado && (
           <div className="panel-letras-herramientas">
             <button

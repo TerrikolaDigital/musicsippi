@@ -3,6 +3,7 @@
 // Deezer no manda CORS: en la app sale por la red nativa (crearFetchNativo) y en el navegador por JSONP.
 // Tiempo límite por petición, hasta 3 a la vez (Deezer limita por IP) y un reintento si responde «cuota».
 import { norm } from './claves.js';
+import { fotoUtil } from '../fotoUtil.js';
 
 const BASE = 'https://api.deezer.com';
 const LIMITE_MS = 8000;
@@ -25,7 +26,7 @@ export async function lectorPorDefecto() {
 }
 
 export const parsearArtista = (a) =>
-  a?.id && a?.name ? { id: a.id, nombre: a.name, foto: a.picture_medium ?? a.picture_big ?? null, fans: a.nb_fan ?? 0 } : null;
+  a?.id && a?.name ? { id: a.id, nombre: a.name, foto: fotoUtil(a.picture_medium) ?? fotoUtil(a.picture_big), fans: a.nb_fan ?? 0 } : null;
 
 export const parsearCancion = (t) =>
   t?.id && t?.title && t?.artist?.name

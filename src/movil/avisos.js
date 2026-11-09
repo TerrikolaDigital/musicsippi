@@ -67,6 +67,14 @@ export function esSegundoPlano(estado, manual) {
   return !manual && !!estado && estado.fase !== 'inactivo';
 }
 
+// Fases en las que el organizador ya no trabaja: la pasada terminó, falló o espera WiFi.
+const FASES_QUIETAS = new Set(['inactivo', 'listo', 'error', 'esperando-wifi']);
+
+/** La pasada automática está trabajando ahora mismo (para el indicador de la cabecera de Inicio). */
+export function organizandoEnSegundoPlano(estado, manual) {
+  return esSegundoPlano(estado, manual) && !FASES_QUIETAS.has(estado.fase);
+}
+
 /** Aviso breve al terminar de organizar; null si no se colocó nada (no hay nada que contar). */
 export function textoResumen({ colocadas = 0 }) {
   if (!(colocadas > 0)) return null;

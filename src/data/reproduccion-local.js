@@ -11,6 +11,8 @@ import {
 } from './lib/db.js';
 import cacheSemilla from '../../data/cache-youtube.json';
 import { entradasSemillaQueFaltan } from './lib/semilla-cache.js';
+import { hayVersionFiel, ordenarPorParecido } from './elegir-version.js';
+import { crearRevisorVersiones, REVISION_VERSIONES } from './revisar-versiones.js';
 
 import { Capacitor } from '@capacitor/core';
 
@@ -27,6 +29,16 @@ async function buscarNativo(query, max) {
   fetchNativo ??= crearFetchNativo();
   try {
     return { canciones: await buscarCanciones(query, { fetch: fetchNativo, max }) };
+  } catch (e) {
+    return { error: 'error_red', detalle: String(e?.message ?? e) };
+  }
+}
+
+async function buscarVideosNativo(query, max) {
+  const { buscarVideos, crearFetchNativo } = await import('./audio-nativo.js');
+  fetchNativo ??= crearFetchNativo();
+  try {
+    return { videos: await buscarVideos(query, { fetch: fetchNativo, max }) };
   } catch (e) {
     return { error: 'error_red', detalle: String(e?.message ?? e) };
   }
@@ -134,39 +146,6 @@ export async function videoIdCacheado(trackId) {
   return cacheado?.videoId ?? null;
 }
 
-// ---- Elección de versión (como el TrackMatcher de BitChord) -----------------
-// YouTube Music devuelve la de estudio casi siempre primero, pero no siempre:
-// directos, remixes, versiones extendidas o de otro artista. Se puntúa cada
-// candidato por título, artista y duración contra lo que sabemos del track.
-// La duración penaliza pero no descarta: mejor una versión rara que silencio.
-
-const VARIANTES = /\b(live|en vivo|en directo|directo|remix|karaoke|cover|instrumental|sped up|slowed|acoustic|acustic[oa]|8d|nightcore|reverb)\b/;
-
-function normalizar(s) {
-  return String(s ?? '')
-    .toLowerCase()
-    .normalize('NFD')
-    .replace(/[̀-ͯ]/g, '')
-    .replace(/\((?:feat|ft|with|con)[^)]*\)|\[(?:feat|ft)[^\]]*\]/g, ' ')
-    .replace(/[^a-z0-9 ]+/g, ' ')
-    .replace(/\s+/g, ' ')
-    .trim();
-}
-
-function sinParentesis(s) {
-  return normalizar(String(s ?? '').replace(/[([][^)\]]*[)\]]/g, ' '));
-}
-
-function parecido(a, b) {
-  if (!a || !b) return 0;
-  if (a === b) return 1;
-  if (a.includes(b) || b.includes(a)) return 0.75;
-  const ta = new Set(a.split(' '));
-  const tb = b.split(' ');
-  const comunes = tb.filter((t) => ta.has(t)).length;
-  return comunes / Math.max(ta.size, tb.length);
-}
-
 let metadataPromesa = null;
 async function referenciaDelTrack(trackId) {
   try {
@@ -174,36 +153,58 @@ async function referenciaDelTrack(trackId) {
     if (!track) return null;
     metadataPromesa ??= import('./biblioteca-local.js').then((m) => m.obtenerMetadata());
     const meta = (await metadataPromesa).tracks?.[trackId];
-    return { titulo: track.titulo, artista: track.artista, duracionS: meta?.duracionMs ? meta.duracionMs / 1000 : null };
+    return {
+      titulo: track.titulo,
+      artista: track.artista,
+      duracionS: meta?.duracionMs ? meta.duracionMs / 1000 : null,
+      manual: !!track.fuentes?.includes('manual'),
+    };
   } catch {
     return null;
   }
 }
 
-function puntuar(c, ref) {
-  let p = 2 * parecido(sinParentesis(ref.titulo), sinParentesis(c.titulo));
-  const artistaRef = normalizar(ref.artista);
-  p += 1.5 * Math.max(0, ...c.artistas.map((a) => parecido(artistaRef, normalizar(a))));
-  if (ref.duracionS && c.duracion) {
-    const dif = Math.abs(ref.duracionS - c.duracion);
-    p += dif <= 3 ? 1.5 : dif <= 10 ? 0.9 : dif <= 30 ? 0.2 : -1.5;
+// Las pistas de un álbum sin añadir no están en la biblioteca: su referencia la da quien llama.
+async function referenciaDe(trackId, pista) {
+  const ref = await referenciaDelTrack(trackId);
+  if (ref) return ref;
+  return pista?.titulo && pista?.artista ? { titulo: pista.titulo, artista: pista.artista, duracionS: null } : null;
+}
+
+// Si YouTube Music no tiene la canción como pista, a menudo sí como vídeo. Sin esto ganaba la
+// misma canción de otro artista. Los vídeos son un extra: si esa búsqueda falla se sigue sin ellos.
+async function buscarVersiones(query, ref) {
+  const resultado = await buscarNativo(query, 8);
+  if (resultado.error) return resultado;
+  let candidatos = resultado.canciones;
+  if (ref && !hayVersionFiel(candidatos, ref)) {
+    const { videos = [] } = await buscarVideosNativo(query, 5);
+    const vistos = new Set(candidatos.map((c) => c.videoId));
+    candidatos = [...candidatos, ...videos.filter((v) => !vistos.has(v.videoId))];
   }
-  // Directo/remix/etc. solo si el track original también lo es.
-  const variante = VARIANTES.exec(normalizar(c.titulo));
-  if (variante && !normalizar(ref.titulo).includes(variante[1])) p -= 1.5;
-  return p;
+  return { candidatos };
 }
 
-function ordenarPorParecido(canciones, ref) {
-  if (!ref) return canciones;
-  return canciones
-    .map((c, i) => ({ c, i, p: puntuar(c, ref) }))
-    // Empate: se respeta el orden de YouTube Music (su relevancia ya cuenta).
-    .sort((x, y) => y.p - x.p || x.i - y.i)
-    .map((x) => x.c);
+const revisor = crearRevisorVersiones();
+
+async function revisarVideoGuardado(query, trackId, cacheado, vetados, pista) {
+  const ref = await referenciaDe(trackId, pista);
+  const { estaGuardada } = await import('./sin-conexion-nativo.js');
+  return revisor.revisar({
+    cacheado,
+    ref,
+    // Una copia sin conexión va ligada a su vídeo: cambiarlo dejaría la canción sin ella.
+    intocable: !navigator.onLine || estaGuardada(cacheado.videoId),
+    buscar: async () => {
+      const r = await buscarVersiones(query, ref);
+      if (r.error) throw new Error(r.error);
+      return r.candidatos.filter((c) => !vetados.includes(c.videoId));
+    },
+    guardar: (registro) => guardarRegistro('cacheYoutube', registro),
+  });
 }
 
-export async function resolverVideoId(query, trackId) {
+export async function resolverVideoId(query, trackId, pista = null) {
   await asegurarCacheSembrado();
   const mapa = await leerDescartados();
   const vetados =
@@ -211,7 +212,10 @@ export async function resolverVideoId(query, trackId) {
 
   const cacheado = await obtenerPorClave('cacheYoutube', trackId);
   if (cacheado && !vetados.includes(cacheado.videoId)) {
-    return { videoId: cacheado.videoId, cacheado: true };
+    const videoId = ES_NATIVO
+      ? await revisarVideoGuardado(query, trackId, cacheado, vetados, pista)
+      : cacheado.videoId;
+    return { videoId, cacheado: true };
   }
 
   // Se piden varios: el primer resultado puede tener el embebido prohibido y
@@ -219,10 +223,10 @@ export async function resolverVideoId(query, trackId) {
   // pedir uno solo (search.list se cobra por llamada, no por resultado).
   let ids;
   if (ES_NATIVO) {
-    const resultado = await buscarNativo(query, 8);
+    const referencia = await referenciaDe(trackId, pista);
+    const resultado = await buscarVersiones(query, referencia);
     if (resultado.error) return resultado;
-    const referencia = await referenciaDelTrack(trackId);
-    ids = ordenarPorParecido(resultado.canciones, referencia).map((c) => c.videoId);
+    ids = ordenarPorParecido(resultado.candidatos, referencia).map((c) => c.videoId);
   } else {
     const resultado = await buscarEnDataApi(query, 5);
     if (resultado.error) return resultado;
@@ -233,7 +237,7 @@ export async function resolverVideoId(query, trackId) {
   const videoId = candidatos[0] ?? null;
   if (!videoId) return { videoId: null, candidatos: [], cacheado: false };
 
-  await guardarRegistro('cacheYoutube', { trackId, videoId });
+  await guardarRegistro('cacheYoutube', { trackId, videoId, revision: REVISION_VERSIONES });
   return { videoId, candidatos, cacheado: false };
 }
 

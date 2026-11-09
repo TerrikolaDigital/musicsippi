@@ -2,6 +2,7 @@
 // Ajustes > Canciones sin modo: las que el organizador no supo colocar, con su motivo,
 // para asignarlas a mano desde el menú ⋯ de cada canción.
 import { useEffect, useMemo, useState } from 'react';
+import { esLaQueSuena } from '../cancionSonando.js';
 import SubpantallaMovil from './SubpantallaMovil.jsx';
 import EstadoVacio from '../EstadoVacio.jsx';
 import FilaCancion from '../FilaCancion.jsx';
@@ -32,7 +33,7 @@ export default function SinModoMovil({ ctx, nav }) {
               key={t.id}
               track={t}
               meta={ctx.metadataDe(t.trackIdReal ?? t.id)}
-              activa={ctx.trackActual?.id === t.id}
+              activa={esLaQueSuena(ctx.trackActual, t)}
               pausada={!ctx.sonando}
               subtitulo={`${formatearTitulo(t.artista)} · ${(MOTIVOS_SIN_COLOCAR[motivos[t.id]] ?? MOTIVOS_SIN_COLOCAR['sin-datos'])}`}
               onTocar={() => ctx.reproducirLista(t, lista, 'Sin mood')}

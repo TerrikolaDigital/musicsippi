@@ -18,6 +18,7 @@ import { imagenADataUrl } from './portadaEje.js';
 import { entradaArtista, entradaCancion } from './noMeGusta.js';
 import HojaAlbum from './HojaAlbum.jsx';
 import { pistasDePopulares } from './populares.js';
+import { buscarEnBiblioteca } from './anadirActual.js';
 import { UMBRAL_BUSCADOR, buscarDestinos, deshacerMover, destinosDeMover, planMover } from './moverMood.js';
 
 const MINUTOS = [15, 30, 45, 60];
@@ -106,9 +107,14 @@ export default function HojaAcciones({ ctx, nav, trackId }) {
   const [busqueda, setBusqueda] = useState('');
   const [nombreLista, setNombreLista] = useState('');
 
-  const guardado = ctx.tracks.find((t) => t.id === trackId);
-  const track = guardado ?? (ctx.trackActual?.id === trackId ? ctx.trackActual : null);
+  const delActual = ctx.trackActual?.id === trackId ? ctx.trackActual : null;
+  // `guardado`: la copia de la biblioteca, aunque la canción suene con otra identidad (`album-…`, `preview-…`).
+  const guardado = ctx.tracks.find((t) => t.id === trackId) ?? (delActual ? buscarEnBiblioteca(delActual, ctx.tracks, ctx.videoIdDe) : null);
+  const track = guardado ?? delActual;
   if (!track) return null;
+  // Suena una canción de fuera: elegir mood o lista, o «Añadir a tu biblioteca», la guarda antes (sin duplicarla).
+  const externa = !guardado && !!delActual;
+  const idLocal = async () => guardado?.id ?? (await ctx.asegurarEnBiblioteca(track)).id;
 
   const meta = ctx.metadataDe(track.trackIdReal ?? track.id);
   const portada = portadaDe(ctx, track);
@@ -137,8 +143,9 @@ export default function HojaAcciones({ ctx, nav, trackId }) {
   // Cambia los moods de la canción (primero se pone, luego se quita, para no pasar por «sin clasificar»)
   // y avisa con Deshacer. Cada paso va por ctx.asignarEje / ctx.quitarModo: se anotan en el journal al PC.
   const aplicar = async ({ poner, quitar }) => {
-    for (const id of poner) await ctx.asignarEje(trackId, id);
-    for (const id of quitar) await ctx.quitarModo(trackId, id);
+    const idTrack = await idLocal();
+    for (const id of poner) await ctx.asignarEje(idTrack, id);
+    for (const id of quitar) await ctx.quitarModo(idTrack, id);
   };
   const cambiarMoods = (cambio, texto) =>
     alternar(async () => {
@@ -201,7 +208,7 @@ export default function HojaAcciones({ ctx, nav, trackId }) {
   const quitar = async () => {
     if (!window.confirm(`¿Quitar «${formatearTitulo(track.titulo)}» de tu biblioteca?`)) return;
     await alternar(async () => {
-      await ctx.quitarTrackSuelto(trackId);
+      await ctx.quitarTrackSuelto(guardado?.id ?? trackId);
       cerrar();
     });
   };
@@ -212,7 +219,7 @@ export default function HojaAcciones({ ctx, nav, trackId }) {
     await alternar(async () => {
       const id = await ctx.crearEje(nombre, 'playlist');
       if (!id) return;
-      await ctx.guardarColeccion(trackId, id, true);
+      await ctx.guardarColeccion(await idLocal(), id, true);
       setNombreLista('');
       setVista('listas');
     });
@@ -232,7 +239,7 @@ export default function HojaAcciones({ ctx, nav, trackId }) {
           <Casilla
             key={e.id}
             marcada={en(e.id)}
-            onCambiar={() => alternar(() => ctx.guardarColeccion(trackId, e.id, !en(e.id)))}
+            onCambiar={() => alternar(async () => ctx.guardarColeccion(await idLocal(), e.id, !en(e.id)))}
           >
             {formatearTitulo(e.nombre)}
           </Casilla>
@@ -349,7 +356,30 @@ export default function HojaAcciones({ ctx, nav, trackId }) {
             )}
           </div>
         )}
-        {guardado && modos.length > 0 && (
+        <Opcion
+          icono="corazon"
+          onClick={() =>
+            alternar(async () => {
+              await ctx.alternarFavorito(await idLocal(), !en('favoritos'));
+            })
+          }
+        >
+          {en('favoritos') ? 'Quitar de favoritas' : 'Añadir a favoritas'}
+        </Opcion>
+        {externa && (
+          <Opcion
+            icono="mas"
+            onClick={() =>
+              alternar(async () => {
+                await ctx.asegurarEnBiblioteca(track);
+                ctx.avisar?.('Añadida a tu biblioteca');
+              })
+            }
+          >
+            Añadir a tu biblioteca
+          </Opcion>
+        )}
+        {(guardado || externa) && modos.length > 0 && (
           <div className="hoja-anadir">
             <p id="hoja-anadir-modo">Añadir a un mood</p>
             <div className="hoja-chips" role="group" aria-labelledby="hoja-anadir-modo">
@@ -374,14 +404,16 @@ export default function HojaAcciones({ ctx, nav, trackId }) {
             Mover a otro mood…
           </Opcion>
         )}
-        {guardado && (
+        {(guardado || externa) && (
           <Opcion icono="lista" onClick={() => setVista('listas')}>
             Añadir a una lista
           </Opcion>
         )}
-        <Opcion icono="siguiente" onClick={aCola(ctx.reproducirDespues)}>
-          Reproducir a continuación
-        </Opcion>
+        {!suena && (
+          <Opcion icono="siguiente" onClick={aCola(ctx.reproducirDespues)}>
+            Reproducir a continuación
+          </Opcion>
+        )}
         <Opcion icono="cola" onClick={aCola(ctx.agregarACola)}>
           Añadir a la cola
         </Opcion>
@@ -416,15 +448,6 @@ export default function HojaAcciones({ ctx, nav, trackId }) {
           }}
         >
           No me gusta esta canción
-        </Opcion>
-        <Opcion
-          icono="no-me-gusta"
-          onClick={() => {
-            ctx.marcarNoMeGusta(entradaArtista(track.artista), track);
-            cerrar();
-          }}
-        >
-          No quiero más de este artista
         </Opcion>
         {albumDe(track, meta) && (
           <Opcion
@@ -755,11 +778,22 @@ export function HojaArtista({ ctx, nav, nombre }) {
       asegurarIds={n > 0 ? async () => ({ tracks: ctx.tracks, ids: propias.map((t) => t.id) }) : null}
       pistasCola={() => (n > 0 ? propias : pistasDePopulares(populares, ctx.tracks))}
       extra={
-        n > 0 && (
-          <Opcion icono="borrar" peligro onClick={() => setConfirmando(true)}>
-            Quitar de la biblioteca
+        <>
+          <Opcion
+            icono="no-me-gusta"
+            onClick={() => {
+              ctx.marcarNoMeGusta(entradaArtista(nombre));
+              nav.atras();
+            }}
+          >
+            No quiero más de este artista
           </Opcion>
-        )
+          {n > 0 && (
+            <Opcion icono="borrar" peligro onClick={() => setConfirmando(true)}>
+              Quitar de la biblioteca
+            </Opcion>
+          )}
+        </>
       }
     />
   );

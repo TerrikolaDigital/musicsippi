@@ -6,21 +6,16 @@ import FilaCancion from '../FilaCancion.jsx';
 import { colorTarjeta } from '../formato.js';
 import { useTramos } from '../useTramos.js';
 import { formatearTitulo } from '../../ui/formato.js';
+import { inicialesDe } from '../iniciales.js';
 import { PESTANAS_BIBLIOTECA, cancionesDeBiblioteca, tomarPestanaBiblioteca } from '../biblioteca.js';
 import { ORDENES_ARTISTAS, guardarOrdenArtistas, leerOrdenArtistas, ordenarArtistas } from '../ordenArtistas.js';
 import { ORDENES_ALBUMES, guardarOrdenAlbumes, leerOrdenAlbumes, ordenarAlbumes } from '../ordenAlbumes.js';
 import { irABuscarEnBiblioteca } from '../busquedaPedida.js';
 import EstadoVacio from '../EstadoVacio.jsx';
+import { esLaQueSuena } from '../cancionSonando.js';
 import Pestanas from '../Pestanas.jsx';
 
-const iniciales = (nombre) =>
-  formatearTitulo(nombre)
-    .split(/\s+/)
-    .filter(Boolean)
-    .slice(0, 2)
-    .map((p) => p[0])
-    .join('')
-    .toUpperCase();
+const iniciales = (nombre) => inicialesDe(formatearTitulo(nombre));
 
 // Lupa de la fila de controles: abre Buscar con «En tu biblioteca» y el campo listo.
 function BotonBuscar({ nav }) {
@@ -42,8 +37,9 @@ function Canciones({ ctx, nav, soloFavoritas, onAlternarFavoritas }) {
   const reproducir = (t, aleatorio) => {
     if (soloFavoritas && eje) return ctx.reproducirModo(eje, lista, t, aleatorio);
     // En aleatorio la primera canción sale de la lista ya barajada (antes era siempre lista[0]).
+    // Sin fila tocada (`t`), la primera es la primera NO marcada: lo decide reproducirLista.
     const cola = aleatorio ? ctx.barajar(lista) : lista;
-    return ctx.reproducirLista(t ?? cola[0], cola, soloFavoritas ? 'Favoritas' : 'Tu biblioteca');
+    return ctx.reproducirLista(t, cola, soloFavoritas ? 'Favoritas' : 'Tu biblioteca', { aleatorio });
   };
 
   return (
@@ -87,7 +83,7 @@ function Canciones({ ctx, nav, soloFavoritas, onAlternarFavoritas }) {
             key={t.id}
             track={t}
             meta={ctx.metadataDe(t.id)}
-            activa={ctx.trackActual?.id === t.id}
+            activa={esLaQueSuena(ctx.trackActual, t)}
             pausada={!ctx.sonando}
             onTocar={() => reproducir(t, false)}
             onMas={() => nav.abrirCapa({ tipo: 'hoja', trackId: t.id })}

@@ -95,11 +95,17 @@ export function omitirActualizacion(versionCode) {
   guardar({ omitida: versionCode });
 }
 
-/** Abre el APK en el navegador del sistema (Intent ACTION_VIEW); respaldo window.open. */
-export async function descargarActualizacion(url) {
+/** Abre una URL en el navegador del sistema (Intent ACTION_VIEW), no en el WebView; respaldo window.open. */
+export async function abrirEnNavegador(url) {
   try {
     await ReproductorNativo.abrirUrl({ url });
   } catch {
     globalThis.open?.(url, '_system');
   }
 }
+
+/** Abre el APK en el navegador del sistema. */
+export const descargarActualizacion = abrirEnNavegador;
+
+/** Página de descargas de la app de escritorio (instalador de Windows). */
+export const URL_DESCARGA_ESCRITORIO = 'https://github.com/TerrikolaDigital/musicsippi/releases/latest';

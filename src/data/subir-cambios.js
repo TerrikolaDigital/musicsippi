@@ -1,4 +1,5 @@
 // Subida al PC del registro de cambios del móvil (la usa sincronizar-movil.js).
+import { ejesParaSubir } from './borrados.js';
 
 /** Altas de canciones: si el PC las rechaza no se descartan (si no, la canción se perdería). */
 const ENDPOINTS_ALTA = new Set(['importar-tunemymusic', 'agregar-track', 'agregar-album']);
@@ -21,9 +22,9 @@ export async function subirCambiosAlPC(base, { enviar, obtener, descartar }) {
     // borrar los modos que se crearon allí desde la última sincronización.
     if (c.endpoint === 'ejes') {
       const { datos } = await enviar(base, 'GET', 'biblioteca-fresca');
-      const delMovil = new Map(cuerpo.ejes.map((e) => [e.id, e]));
-      const soloPC = (datos?.ejes ?? []).filter((e) => !delMovil.has(e.id));
-      cuerpo = { ...cuerpo, ejes: [...cuerpo.ejes, ...soloPC] };
+      // Lo que el móvil quitó a propósito no se devuelve (antes volvía siempre desde el PC).
+      const { eliminados = [], ...resto } = cuerpo;
+      cuerpo = { ...resto, ejes: ejesParaSubir(resto.ejes, datos?.ejes ?? [], new Set(eliminados)) };
     }
     const { status } = await enviar(base, 'POST', c.endpoint, cuerpo);
     if (status >= 200 && status < 300) {

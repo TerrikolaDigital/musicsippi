@@ -56,8 +56,10 @@ class FuenteTroceada(private val origen: DataSource) : DataSource {
     private fun abrirTrozo() {
         val base = especBase ?: return
         finTrozo = minOf(posicion + trozoPara(base.uri.toString()), limite)
-        origen.open(base.buildUpon().setPosition(posicion).setLength(finTrozo - posicion).build())
+        // Antes de abrir: si open falla hay que cerrar igual, o el reintento de ExoPlayer revienta en
+        // DefaultDataSource y un 403 acaba pareciendo falta de señal.
         abierta = true
+        origen.open(base.buildUpon().setPosition(posicion).setLength(finTrozo - posicion).build())
     }
 
     override fun read(buffer: ByteArray, offset: Int, length: Int): Int {

@@ -7,12 +7,13 @@ import SubpantallaMovil from './SubpantallaMovil.jsx';
 import AjustesSonido from './AjustesSonido.jsx';
 import Interruptor from './Interruptor.jsx';
 import { haceCuanto } from '../formato.js';
-import { abrirAjusteBateria, esAndroid, estadoBateria } from '../../data/nativo-movil.js';
+import { abrirAjusteBateria, compartir, esAndroid, estadoBateria } from '../../data/nativo-movil.js';
+import { textoCompartirApp } from '../compartir-salida.js';
 import { contarCambiosPendientes, obtenerUltimaSincronizacion } from '../../data/sincronizar-movil.js';
 import { leerNivelar, guardarNivelar } from '../../data/nivelar-volumen.js';
 import { leerContinuar, guardarContinuar } from '../../data/continuar-al-acabar.js';
 import { contarSinModo } from '../inicio.js';
-import { versionInstalada } from '../../data/actualizaciones-movil.js';
+import { versionInstalada, abrirEnNavegador, URL_DESCARGA_ESCRITORIO } from '../../data/actualizaciones-movil.js';
 import { leerTema, guardarTema } from '../../data/tema.js';
 import * as db from '../../data/lib/db.js';
 import { esquemaLocal, hayCopiaPrevia } from '../../data/migrar-moods-movil.js';
@@ -231,6 +232,18 @@ export default function ConfiguracionMovil({ ctx, nav }) {
 
       <Grupo titulo="Musicsippi">
         <Fila icono="info" color="#ffffff14" titulo="Acerca de" sub="@terrikoladigital · 2026" estado={`${nativa?.versionName || '0.1.0'}${version?.commit ? ` · ${version.commit}` : ''} ›`} onClick={() => nav.abrir({ tipo: 'config-acerca' })} />
+        <Fila icono="descargar" color="#ffffff14" titulo="Musicsippi para ordenador (Windows)" sub="Se descarga desde GitHub" estado="↗" onClick={() => abrirEnNavegador(URL_DESCARGA_ESCRITORIO)} />
+        <Fila
+          icono="compartir"
+          color="#ffffff14"
+          titulo="Compartir Musicsippi"
+          sub="Pasa el enlace a quien quieras"
+          onClick={() =>
+            compartir({ titulo: 'Musicsippi', texto: textoCompartirApp() })
+              .then((r) => r === 'copiado' && ctx.avisar?.('Enlace copiado'))
+              .catch(() => {})
+          }
+        />
       </Grupo>
 
       <Grupo titulo="Avanzado">

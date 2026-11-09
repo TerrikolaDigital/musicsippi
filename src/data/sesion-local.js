@@ -17,7 +17,7 @@ export function migrarUltimosModos() {
 }
 
 export async function registrarReproduccion(entrada) {
-  await agregarRegistro('historial', { ...entrada, ts: Date.now() });
+  await agregarRegistro('historial', { ...entrada, ts: entrada.ts ?? Date.now() });
   sinPodar += 1;
   if (sinPodar < PODAR_CADA) return; // podar cuesta leer todo: se hace de vez en cuando
   sinPodar = 0;

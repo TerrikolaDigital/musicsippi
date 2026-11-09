@@ -6,9 +6,12 @@ export const norm = (t) =>
     .toLowerCase()
     .normalize('NFD')
     .replace(/[̀-ͯ]/g, '')
+    .normalize('NFC') // recompone p. ej. が (kana + dakuten), que el NFD descompone
     .replace(/[([][^)\]]*[)\]]/g, ' ')
     .replace(/\b(feat|ft|with)\b.*$/, ' ')
-    .replace(/[^a-z0-9 ]+/g, ' ')
+    // Latín: solo a-z0-9 (las claves guardadas no cambian). Otras escrituras (CJK, cirílico…) se conservan:
+    // si no, «米津玄師» quedaba vacío y todas las canciones no latinas compartían la clave `|`.
+    .replace(/[^a-z0-9 ]/gu, (c) => (/[\p{L}\p{N}]/u.test(c) && !/\p{Script=Latin}/u.test(c) ? c : ' '))
     .replace(/\s+/g, ' ')
     .trim();
 

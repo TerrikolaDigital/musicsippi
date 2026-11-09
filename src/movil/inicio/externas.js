@@ -25,7 +25,7 @@ export async function resolverVideo(buscarExterno, cancion) {
 }
 
 export const previewDeCancion = (cancion, videoId) =>
-  previewDe({ videoId, tituloSugerido: cancion.titulo, artistaSugerido: cancion.artista });
+  previewDe({ videoId, tituloSugerido: cancion.titulo, artistaSugerido: cancion.artista, thumbnail: cancion.cover });
 
 /**
  * Acciones de las tarjetas externas. Estado por id: 'cargando' | 'ok' | 'error'.
@@ -57,7 +57,7 @@ export function useAccionesExternas(ctx, etiqueta) {
       poner(c.id, 'cargando');
       try {
         const videoId = await resolverVideo(ctxRef.current.buscarExterno, c);
-        await ctxRef.current.agregarExterno({ titulo: c.titulo, artista: c.artista, videoId });
+        await ctxRef.current.agregarExterno({ titulo: c.titulo, artista: c.artista, videoId, coverUrl: c.cover });
         poner(c.id, 'ok');
         return true;
       } catch {

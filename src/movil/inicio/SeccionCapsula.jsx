@@ -21,7 +21,7 @@ export default function SeccionCapsula({ ctx }) {
       <div className="capsula-fotos" aria-hidden="true">
         {apiladas.map((t, i) => (
           <span key={t.id} className={`capsula-foto f${i}`}>
-            <PortadaImg src={portadaDe(ctx, t)} texto={t.titulo ?? ''} loading="lazy" />
+            <PortadaImg src={portadaDe(ctx, t)} texto={t.titulo ?? ''} loading="lazy" tam={250} />
           </span>
         ))}
       </div>

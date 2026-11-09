@@ -13,3 +13,9 @@ export function repeticionSeCancela({ repetir, idAnterior, idNuevo }) {
   if (idAnterior == null) return false;
   return idAnterior !== (idNuevo ?? null);
 }
+
+/** «Aleatorio» y «Repetir» se excluyen: una sesión guardada con los dos conserva «Repetir». */
+export const aleatorioRestaurado = (sesion) => !sesion?.repetir && (sesion?.aleatorio ?? true);
+
+/** Cómo queda «Repetir» al fijar «Aleatorio»: encenderlo lo apaga, apagarlo no lo toca. */
+export const repetirSegunAleatorio = (aleatorio, repetir) => repetir && !aleatorio;

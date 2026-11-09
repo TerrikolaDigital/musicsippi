@@ -5,15 +5,18 @@
 import { useId } from 'react';
 import { trazoOnda } from './ola.js';
 
-const W = 361;
-const H = 120;
-const CAPAS = [
+// Capas a una altura dada: el móvil usa 361 × 120; el escritorio pasa su propio
+// ancho y alto (900 × 150) para que las ondas no se estiren.
+const capas = (H) => [
   { y: H * 0.42, amp: 9, lo: 180, op: 0.22, dur: 16, color: '#ff85b0' },
   { y: H * 0.58, amp: 7, lo: 140, op: 0.2, dur: 11, color: '#a58bff' },
   { y: H * 0.74, amp: 6, lo: 110, op: 0.28, dur: 8, color: '#0a0b16' },
 ];
 
-export default function Corriente({ className = '' }) {
+export default function Corriente({ className = '', ancho = 361, alto = 120 }) {
+  const W = ancho;
+  const H = alto;
+  const CAPAS = capas(H);
   const uid = useId().replace(/:/g, '');
   return (
     <svg className={`corriente ${className}`} viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none" aria-hidden="true" focusable="false">

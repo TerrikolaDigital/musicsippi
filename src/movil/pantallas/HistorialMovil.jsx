@@ -5,11 +5,12 @@
 import { useMemo, useState } from 'react';
 import { IconoM } from '../iconos.jsx';
 import FilaCancion from '../FilaCancion.jsx';
-import { agruparPorDia, rankingCanciones, rankingModos } from '../historial.js';
+import { agruparPorDia, rankingCanciones, rankingModos, trackDeEntrada, colaDesde } from '../historial.js';
 import { useTramos } from '../useTramos.js';
 import { formatearTitulo } from '../../ui/formato.js';
 import SubpantallaMovil from './SubpantallaMovil.jsx';
 import EstadoVacio from '../EstadoVacio.jsx';
+import { esLaQueSuena } from '../cancionSonando.js';
 import Pestanas from '../Pestanas.jsx';
 
 const PESTANAS = [
@@ -29,19 +30,33 @@ export default function HistorialMovil({ ctx, nav }) {
       if (t.trackIdReal) porId.set(t.trackIdReal, t);
     }
     return ctx.historial
-      .map((h, i) => {
+      .map((h) => {
         const real = porId.get(h.trackId);
-        const track = real ?? (h.titulo ? { id: `hist-${h.trackId}-${i}`, trackIdReal: h.trackId, titulo: h.titulo, artista: h.artista ?? '', ejes: [] } : null);
+        const track = real ?? trackDeEntrada(h);
         return track ? { ...h, ts: h.ts, track, enBiblioteca: !!real } : null;
       })
       .filter(Boolean);
   }, [ctx.historial, ctx.tracks]);
 
+  // Canciones de fuera de la biblioteca (vistas previas, radio): la entrada no guardó carátula, así que se busca la de
+  // la misma canción en la biblioteca y, si no, la miniatura del vídeo. Nunca iniciales si hay alguna.
+  const portadaPorCancion = useMemo(() => {
+    const clave = (t) => `${String(t.titulo ?? '').trim().toLowerCase()}|${String(t.artista ?? '').trim().toLowerCase()}`;
+    const m = new Map();
+    for (const t of ctx.tracks) {
+      const url = ctx.metadataDe(t.trackIdReal ?? t.id)?.coverUrl ?? t.coverUrl;
+      if (typeof url === 'string' && url.startsWith('http') && !m.has(clave(t))) m.set(clave(t), url);
+    }
+    return (t) => m.get(clave(t)) ?? null;
+  }, [ctx.tracks, ctx.metadataDe]);
+  const metaDeFuera = (track) => ({
+    coverUrl: track.coverUrl ?? portadaPorCancion(track),
+    coverRespaldo: ctx.metadataDe(track.trackIdReal ?? track.id)?.coverRespaldo ?? null,
+  });
+
   const { cuantas, centinela } = useTramos(entradas.length, entradas.length);
   const visibles = useMemo(() => entradas.slice(0, cuantas), [entradas, cuantas]);
   const grupos = useMemo(() => agruparPorDia(visibles), [visibles]);
-  // La cola que suena es el historial entero (solo las canciones de la biblioteca o con vista previa).
-  const cola = useMemo(() => entradas.map((e) => e.track), [entradas]);
 
   const sonadas = useMemo(() => rankingCanciones(entradas), [entradas]);
   const colaSonadas = useMemo(() => sonadas.map((r) => r.track), [sonadas]);
@@ -70,8 +85,8 @@ export default function HistorialMovil({ ctx, nav }) {
                 <FilaCancion
                   key={r.track.id}
                   track={r.track}
-                  meta={r.enBiblioteca ? ctx.metadataDe(r.track.id) : null}
-                  activa={ctx.trackActual?.id === r.track.id}
+                  meta={r.enBiblioteca ? ctx.metadataDe(r.track.id) : metaDeFuera(r.track)}
+                  activa={esLaQueSuena(ctx.trackActual, r.track)}
                   pausada={!ctx.sonando}
                   subtitulo={formatearTitulo(r.track.artista)}
                   derecha={`${r.n} ${r.n === 1 ? 'vez' : 'veces'}`}
@@ -106,13 +121,13 @@ export default function HistorialMovil({ ctx, nav }) {
                 <FilaCancion
                   key={`${e.ts}-${i}`}
                   track={e.track}
-                  meta={e.enBiblioteca ? ctx.metadataDe(e.track.id) : null}
-                  activa={ctx.trackActual?.id === e.track.id}
+                  meta={e.enBiblioteca ? ctx.metadataDe(e.track.id) : metaDeFuera(e.track)}
+                  activa={esLaQueSuena(ctx.trackActual, e.track)}
                   pausada={!ctx.sonando}
                   subtitulo={[formatearTitulo(e.track.artista), e.ejeNombre && formatearTitulo(e.ejeNombre)].filter(Boolean).join(' · ')}
                   derecha={hora(e.ts)}
-                  onTocar={() => ctx.reproducirLista(e.track, cola, 'Historial')}
-                  onMas={() => (e.enBiblioteca ? nav.abrirCapa({ tipo: 'hoja', trackId: e.track.id }) : ctx.reproducirLista(e.track, cola, 'Historial'))}
+                  onTocar={() => ctx.reproducirLista(e.track, colaDesde(entradas, e), 'Historial')}
+                  onMas={() => (e.enBiblioteca ? nav.abrirCapa({ tipo: 'hoja', trackId: e.track.id }) : ctx.reproducirLista(e.track, colaDesde(entradas, e), 'Historial'))}
                   onPulsacionLarga={e.enBiblioteca ? () => nav.abrirCapa({ tipo: 'hoja', trackId: e.track.id }) : undefined}
                 />
               ))}

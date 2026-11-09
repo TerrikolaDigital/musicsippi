@@ -62,7 +62,6 @@ class ReproductorNativoPlugin : Plugin() {
     // URL por mediaId de lo cargado/encolado: hace falta para reconstruir el
     // MediaItem al actualizar solo la metadata sin reiniciar la reproducción.
     private val urlsPorId = java.util.concurrent.ConcurrentHashMap<String, String>()
-    private val portadasEnDescarga = java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
 
     private val alCambiarRed: (Boolean, Boolean) -> Unit = { hayRed, medida ->
         EventosReproductor.emitir("red", JSObject().put("conectada", hayRed).put("medida", medida))
@@ -145,6 +144,12 @@ class ReproductorNativoPlugin : Plugin() {
         call.resolve()
     }
 
+    /** Lo anotado por el servicio (saltos, oídas y reproducciones): {saltos:[{id, tipo?, ts, ...}]}; vacía la lista. */
+    @PluginMethod
+    fun saltosPendientes(call: PluginCall) {
+        call.resolve(SaltosPendientes.recoger(context))
+    }
+
     @PluginMethod
     fun estadoSinConexion(call: PluginCall) {
         call.resolve(DescargadorSinConexion.estado().put("hayRed", RedSinConexion.hayRed))
@@ -180,6 +185,7 @@ class ReproductorNativoPlugin : Plugin() {
         android.util.Log.d("Musicsippi", "metadata pista=$id portada=${call.getString("portadaUrl")?.isNotBlank() == true} subtitulo=${call.getString("album")}")
         urlsPorId.clear()
         PlaybackService.fijarPendientes(emptyList()) // las de la cola anterior ya no valen
+        PlaybackService.salirDelModo() // el usuario eligió otra canción: se olvida la interrumpida
         urlsPorId[id] = url
         PlaybackService.fijarGanancia(id, call.getDouble("gananciaDb") ?: 0.0)
         pedirPermisoNotificaciones()
@@ -189,11 +195,15 @@ class ReproductorNativoPlugin : Plugin() {
         PlaybackService.registrarCabeceras(url, cabeceras)
 
         conControlador(call) { c ->
+            // Sin este permiso setMediaItem no hace nada ni avisa: la pantalla se quedaría en 0:00.
+            if (!c.isCommandAvailable(androidx.media3.common.Player.COMMAND_SET_MEDIA_ITEM)) {
+                call.reject("el reproductor no acepta canciones", "rechazado")
+                return@conControlador
+            }
             c.setMediaItem(item, posicionMs)
             c.volume = PlaybackService.volumenEfectivo(id)
             c.prepare()
             if (reproducirAlCargar) c.play() else c.pause()
-            descargarYAplicarPortada(id, url, call.getString("titulo"), call.getString("artista"), call.getString("album"), call.getString("portadaUrl"))
             call.resolve()
         }
     }
@@ -304,6 +314,7 @@ class ReproductorNativoPlugin : Plugin() {
 
     @PluginMethod
     fun detener(call: PluginCall) = conControlador(call) { c ->
+        PlaybackService.salirDelModo()
         c.stop()
         c.clearMediaItems()
         urlsPorId.clear()
@@ -384,30 +395,39 @@ class ReproductorNativoPlugin : Plugin() {
      * Cambia título/artista/carátula de la notificación sin reiniciar el audio:
      * el MediaItem conserva la misma URI, y ExoPlayer actualiza solo la
      * metadata cuando la fuente es la misma.
+     *
+     * `id` es la pista que describe la metadata y solo se aplica a ELLA (esté donde esté de la
+     * cola). Antes iba a «la que suene ahora»: JS publica la canción nueva antes de que el nativo
+     * cambie, así que se pegaba a la vieja y, al volver a ella con ⏮, el bloqueo enseñaba el título
+     * de otra canción con la duración de la que suena. Sin `id` (JS antiguo) se mantiene lo de antes.
      */
     @PluginMethod
     fun actualizarMetadata(call: PluginCall) {
+        val id = call.getString("id")?.takeIf { it.isNotBlank() }
         val titulo = call.getString("titulo")
         val artista = call.getString("artista")
         val album = call.getString("album")
         val portadaUrl = call.getString("portadaUrl")
-        android.util.Log.d("Musicsippi", "actualizar metadata portada=${!portadaUrl.isNullOrBlank()} subtitulo=$album")
+        android.util.Log.d("Musicsippi", "actualizar metadata pista=$id portada=${!portadaUrl.isNullOrBlank()} subtitulo=$album")
         conControlador(call) { c ->
-            // La pista actual puede no ser la primera de la lista (cola nativa).
-            val actual = c.currentMediaItem
-            val url = actual?.let { urlsPorId[it.mediaId] }
-            if (actual != null && url != null) {
+            val ids = (0 until c.mediaItemCount).map { c.getMediaItemAt(it).mediaId }
+            for (i in ColaNativa.indicesParaMetadata(ids, c.currentMediaItemIndex, id)) {
+                val item = c.getMediaItemAt(i)
+                val url = urlsPorId[item.mediaId] ?: continue
                 c.replaceMediaItem(
-                    c.currentMediaItemIndex,
-                    PlaybackService.construirItem(actual.mediaId, url, titulo, artista, album, portadaUrl)
+                    i,
+                    PlaybackService.construirItem(
+                        item.mediaId, url, titulo, artista, album, portadaUrl,
+                        // La duración que ya conocía el nativo no se pierde al cambiar el texto.
+                        item.mediaMetadata.durationMs ?: 0L
+                    )
                 )
-                descargarYAplicarPortada(actual.mediaId, url, titulo, artista, album, portadaUrl)
             }
             call.resolve()
         }
     }
 
-    /** [{id, url, headers, titulo, artista, portadaUrl, duracionMs, gananciaDb, encadenada}] -> MediaItems (registra cabeceras y ganancias). */
+    /** [{id, url, headers, titulo, artista, album, portadaUrl, duracionMs, gananciaDb, encadenada}] -> MediaItems (registra cabeceras y ganancias). */
     private fun leerItems(entrada: org.json.JSONArray?): List<MediaItem> {
         val items = mutableListOf<MediaItem>()
         if (entrada == null) return items
@@ -429,7 +449,7 @@ class ReproductorNativoPlugin : Plugin() {
                 id, url,
                 o.optString("titulo", null),
                 o.optString("artista", null),
-                null,
+                o.optString("album", null),
                 o.optString("portadaUrl", null),
                 o.optLong("duracionMs", 0L)
             )
@@ -447,6 +467,36 @@ class ReproductorNativoPlugin : Plugin() {
         principal.post { call.resolve(PlaybackService.instantanea() ?: JSObject()) }
     }
 
+    private fun leerPendientes(call: PluginCall, nombre: String): List<PlaybackService.Companion.Pendiente> {
+        val lista = mutableListOf<PlaybackService.Companion.Pendiente>()
+        call.getArray(nombre)?.let { arr ->
+            for (i in 0 until arr.length()) {
+                val o = arr.optJSONObject(i) ?: continue
+                val id = o.optString("id", "")
+                if (id.isEmpty()) continue
+                lista += PlaybackService.Companion.Pendiente(
+                    id, o.optString("titulo", null), o.optString("artista", null), o.optString("portadaUrl", null)
+                )
+            }
+        }
+        return lista
+    }
+
+    /**
+     * Entrega la lista de lo que sigue en cuanto JS la conoce, antes de resolver nada: si el WebView se
+     * duerme ahora, el servicio ya sabe qué poner al acabar la canción. No toca la cola.
+     */
+    @PluginMethod
+    fun fijarPendientes(call: PluginCall) {
+        val actualId = call.getString("actualId")
+        val lista = leerPendientes(call, "pendientes")
+        conControlador(call) { c ->
+            val aplicado = actualId == null || c.currentMediaItem?.mediaId == actualId
+            if (aplicado) PlaybackService.anotarPendientes(lista)
+            call.resolve(JSObject().put("aplicado", aplicado))
+        }
+    }
+
     /**
      * Sustituye todo lo que hay DESPUÉS de la pista actual por `items`
      * ({id, url, headers, titulo, artista, portadaUrl, duracionMs}) sin tocar
@@ -462,20 +512,14 @@ class ReproductorNativoPlugin : Plugin() {
         val previos = if (call.hasOption("anteriores")) leerItems(call.getArray("anteriores")) else null
         // Las que van después, solo con videoId: el servicio las resuelve él
         // mismo si JS no llega a tiempo (WebView dormido o app quitada de recientes).
-        val pendientes = mutableListOf<PlaybackService.Companion.Pendiente>()
-        call.getArray("pendientes")?.let { arr ->
-            for (i in 0 until arr.length()) {
-                val o = arr.optJSONObject(i) ?: continue
-                val id = o.optString("id", "")
-                if (id.isEmpty()) continue
-                pendientes += PlaybackService.Companion.Pendiente(
-                    id, o.optString("titulo", null), o.optString("artista", null), o.optString("portadaUrl", null)
-                )
-            }
-        }
-        PlaybackService.fijarPendientes(pendientes)
+        PlaybackService.fijarPendientes(leerPendientes(call, "pendientes"))
+        // Guardadas para el modo sin señal (mismo mood, luego cualquiera): el servicio las usa con el WebView dormido.
+        if (call.hasOption("respaldo")) PlaybackService.fijarRespaldo(leerPendientes(call, "respaldo"))
         conControlador(call) { c ->
-            if (c.mediaItemCount == 0 || (actualId != null && c.currentMediaItem?.mediaId != actualId)) {
+            // Sonando guardadas por falta de señal: la cola nativa no es la de JS y no se toca (la original vuelve sola).
+            if (c.mediaItemCount == 0 || PlaybackService.enRespaldo() ||
+                (actualId != null && c.currentMediaItem?.mediaId != actualId)
+            ) {
                 call.resolve(JSObject().put("aplicado", false))
                 return@conControlador
             }
@@ -889,6 +933,93 @@ class ReproductorNativoPlugin : Plugin() {
         }
     }
 
+    // --- Destino persistente de la copia automática (Drive u otra carpeta elegida una vez) ---
+
+    /** Pide un archivo de destino y conserva el permiso de escritura para escribir luego sin diálogo. */
+    @PluginMethod
+    fun elegirDestinoCopia(call: PluginCall) {
+        val intent = android.content.Intent(android.content.Intent.ACTION_CREATE_DOCUMENT)
+            .addCategory(android.content.Intent.CATEGORY_OPENABLE)
+            .setType("application/json")
+            .putExtra(android.content.Intent.EXTRA_TITLE, call.getString("nombre") ?: "musicsippi-copia.json")
+            .addFlags(
+                android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION or
+                    android.content.Intent.FLAG_GRANT_WRITE_URI_PERMISSION or
+                    android.content.Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION
+            )
+        startActivityForResult(call, intent, "alElegirDestinoCopia")
+    }
+
+    @com.getcapacitor.annotation.ActivityCallback
+    private fun alElegirDestinoCopia(call: PluginCall, resultado: androidx.activity.result.ActivityResult) {
+        val uri = resultado.data?.data
+        if (resultado.resultCode != android.app.Activity.RESULT_OK || uri == null) {
+            call.resolve(JSObject().put("uri", JSObject.NULL))
+            return
+        }
+        try {
+            context.contentResolver.takePersistableUriPermission(
+                uri,
+                android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION or android.content.Intent.FLAG_GRANT_WRITE_URI_PERMISSION
+            )
+            call.resolve(JSObject().put("uri", uri.toString()))
+        } catch (e: Exception) {
+            call.reject("no se pudo conservar el permiso", e)
+        }
+    }
+
+    /** Sobrescribe el destino con el temporal, lo relee y devuelve tamaño y SHA-256 de lo releído. */
+    @PluginMethod
+    fun escribirEnDestino(call: PluginCall) {
+        val uriTexto = call.getString("uri") ?: return call.reject("falta uri")
+        val ruta = call.getString("rutaTemporal") ?: return call.reject("falta rutaTemporal")
+        val f = java.io.File(ruta)
+        if (f.parentFile?.canonicalPath != context.cacheDir.canonicalPath || !f.isFile) return call.reject("temporal no válido")
+        try {
+            val uri = Uri.parse(uriTexto)
+            val conPermiso = context.contentResolver.persistedUriPermissions.any { it.uri == uri && it.isWritePermission }
+            if (!conPermiso) return call.reject("sin-permiso")
+            context.contentResolver.openOutputStream(uri, "wt")?.use { salida -> f.inputStream().use { it.copyTo(salida) } }
+                ?: return call.reject("no se pudo abrir el destino")
+            val resumen = java.security.MessageDigest.getInstance("SHA-256")
+            var bytes = 0L
+            context.contentResolver.openInputStream(uri)?.use { entrada ->
+                val buffer = ByteArray(64 * 1024)
+                while (true) {
+                    val n = entrada.read(buffer)
+                    if (n < 0) break
+                    resumen.update(buffer, 0, n)
+                    bytes += n
+                }
+            } ?: return call.reject("no se pudo releer el destino")
+            val hex = resumen.digest().joinToString("") { "%02x".format(it) }
+            call.resolve(JSObject().put("bytes", bytes).put("sha256", hex))
+        } catch (e: java.io.FileNotFoundException) {
+            call.reject("no-encontrado")
+        } catch (e: SecurityException) {
+            call.reject("sin-permiso")
+        } catch (e: Exception) {
+            call.reject("no se pudo escribir en el destino")
+        } finally {
+            f.delete()
+        }
+    }
+
+    /** Suelta el permiso persistente; no falla si ya no estaba. */
+    @PluginMethod
+    fun liberarDestinoCopia(call: PluginCall) {
+        val uriTexto = call.getString("uri") ?: return call.reject("falta uri")
+        try {
+            context.contentResolver.releasePersistableUriPermission(
+                Uri.parse(uriTexto),
+                android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION or android.content.Intent.FLAG_GRANT_WRITE_URI_PERMISSION
+            )
+        } catch (e: Exception) {
+            // ya no estaba: nada que liberar
+        }
+        call.resolve()
+    }
+
     // --- Copias LAN: MediaStore, nunca rutas file:// ---
 
     /** Crea (o recupera) un temporal invisible en Music/Musicsippi. */
@@ -1233,47 +1364,35 @@ class ReproductorNativoPlugin : Plugin() {
      */
     private fun conControlador(call: PluginCall, accion: (MediaController) -> Unit) {
         principal.post {
-            val futuro = obtenerFuturoControlador()
+            val futuro = try {
+                obtenerFuturoControlador()
+            } catch (e: RuntimeException) {
+                // SessionToken lanza si el sistema no encuentra el servicio: sin esto, la app se cerraría.
+                call.reject("reproductor nativo no disponible: ${e.message}", "sin_servicio", e)
+                return@post
+            }
+            var atendida = false // solo se toca en el hilo principal
+            // buildAsync no tiene plazo: si el servicio no contesta, la orden quedaría sin respuesta para
+            // siempre y JS, esperándola, no podría ni avisar. Se tira la conexión para que el reintento la rehaga.
+            val vencer = Runnable {
+                if (atendida) return@Runnable
+                atendida = true
+                if (futuroControlador === futuro) futuroControlador = null
+                MediaController.releaseFuture(futuro)
+                call.reject("el reproductor nativo no contestó", "sin_respuesta")
+            }
+            principal.postDelayed(vencer, ESPERA_CONTROLADOR_MS)
             futuro.addListener({
-                try {
-                    accion(futuro.get())
-                } catch (e: Exception) {
-                    call.reject("reproductor nativo no disponible: ${e.message}", e)
+                if (!atendida) {
+                    atendida = true
+                    principal.removeCallbacks(vencer)
+                    try {
+                        accion(futuro.get())
+                    } catch (e: Exception) {
+                        call.reject("reproductor nativo no disponible: ${e.message}", e)
+                    }
                 }
             }, ContextCompat.getMainExecutor(context))
-        }
-    }
-
-    /**
-     * Algunas versiones de HyperOS no descargan artworkUri. Tras enseñar la URI
-     * de inmediato, se reemplaza por JPEG local (como máximo 1024 px) sin
-     * reiniciar el audio ni tocar la posición actual.
-     */
-    private fun descargarYAplicarPortada(
-        id: String,
-        urlAudio: String,
-        titulo: String?,
-        artista: String?,
-        album: String?,
-        portadaUrl: String?
-    ) {
-        if (portadaUrl.isNullOrBlank() || !portadasEnDescarga.add("$id|$portadaUrl")) return
-        alcanceResolucion.launch {
-            val portada = PlaybackService.descargarPortada(portadaUrl) ?: return@launch
-            principal.post {
-                val futuro = obtenerFuturoControlador()
-                futuro.addListener({
-                    runCatching {
-                        val controlador = futuro.get()
-                        if (controlador.currentMediaItem?.mediaId == id && urlsPorId[id] == urlAudio) {
-                            controlador.replaceMediaItem(
-                                controlador.currentMediaItemIndex,
-                                PlaybackService.construirItem(id, urlAudio, titulo, artista, album, portadaUrl, portadaData = portada)
-                            )
-                        }
-                    }
-                }, ContextCompat.getMainExecutor(context))
-            }
         }
     }
 
@@ -1296,5 +1415,6 @@ class ReproductorNativoPlugin : Plugin() {
     companion object {
         private const val ID_POR_DEFECTO = "musicsippi-actual"
         private const val CODIGO_PERMISO_NOTIFICACIONES = 7421
+        private const val ESPERA_CONTROLADOR_MS = 10_000L
     }
 }

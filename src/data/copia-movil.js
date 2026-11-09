@@ -6,6 +6,11 @@ import { NOMBRE_DB, cerrarDB, obtenerTodos, guardarRegistro, vaciarStore } from 
 export const FORMATO = 'musicsippi-copia-movil';
 export const VERSION = 1;
 export const STORES = ['biblioteca', 'ejes', 'overrides', 'cacheYoutube', 'metadataLocal', 'historial', 'configuracion', 'archivosLocales'];
+// Claves de `configuracion` que nunca viajan en la copia ni se restauran desde ella.
+export const CLAVES_SENSIBLES = ['youtubeApiKey', 'claveEmparejamientoPC', 'direccionPC'];
+// Claves de `configuracion` propias de este dispositivo: tampoco viajan ni se restauran (copiaAuto lleva la URI del destino).
+export const CLAVES_LOCALES = [...CLAVES_SENSIBLES, 'copiaAuto'];
+export const MAX_TEXTO_COPIA = 50 * 1024 * 1024;
 const CLAVE_COPIA_PREVIA = 'musicsippi.copiaPrevia';
 
 export function serializarCopia(stores, ahora = new Date()) {
@@ -24,6 +29,27 @@ export function validarCopia(obj) {
   return { ok: true };
 }
 
+/** Devuelve una copia de los stores sin los registros locales del dispositivo de `configuracion`. */
+export function limpiarSensibles(stores) {
+  return {
+    ...stores,
+    configuracion: (stores.configuracion ?? []).filter((r) => !CLAVES_LOCALES.includes(r?.clave)),
+  };
+}
+
+/** Registros de configuración al restaurar: los del archivo sin claves locales, más las locales actuales. */
+export function combinarConfiguracion(actual, entrante) {
+  return [
+    ...(entrante ?? []).filter((r) => !CLAVES_LOCALES.includes(r?.clave)),
+    ...(actual ?? []).filter((r) => CLAVES_LOCALES.includes(r?.clave)),
+  ];
+}
+
+/** Contenido que se hashea para detectar cambios: solo los stores, sin fecha ni claves locales. */
+export function contenidoParaHash(stores) {
+  return JSON.stringify(limpiarSensibles(stores));
+}
+
 async function leerTodo() {
   const stores = {};
   for (const nombre of STORES) stores[nombre] = await obtenerTodos(nombre);
@@ -32,7 +58,7 @@ async function leerTodo() {
 
 /** Lee todos los stores de IndexedDB y devuelve el JSON de la copia. */
 export async function exportarCopia() {
-  return JSON.stringify(serializarCopia(await leerTodo()));
+  return JSON.stringify(serializarCopia(limpiarSensibles(await leerTodo())));
 }
 
 /**
@@ -41,6 +67,11 @@ export async function exportarCopia() {
  * no es válida: en ese caso no se toca nada.
  */
 export async function restaurarCopia(texto) {
+  // Tope en bytes UTF-8: solo se mide con Blob si los caracteres podrían pasarse (hasta 3 bytes por carácter).
+  if (typeof texto === 'string' && (texto.length > MAX_TEXTO_COPIA
+    || (texto.length * 3 > MAX_TEXTO_COPIA && new Blob([texto]).size > MAX_TEXTO_COPIA))) {
+    throw new Error('La copia es demasiado grande.');
+  }
   let obj;
   try {
     obj = JSON.parse(texto);
@@ -54,9 +85,13 @@ export async function restaurarCopia(texto) {
   } catch {
     // Si la copia previa no cabe en localStorage se sigue: la restauración ya está validada.
   }
+  const sensiblesActuales = await obtenerTodos('configuracion');
   for (const nombre of STORES) {
+    const registros = nombre === 'configuracion'
+      ? combinarConfiguracion(sensiblesActuales, obj.stores[nombre])
+      : obj.stores[nombre] ?? [];
     await vaciarStore(nombre);
-    for (const registro of obj.stores[nombre] ?? []) await guardarRegistro(nombre, registro);
+    for (const registro of registros) await guardarRegistro(nombre, registro);
   }
   return { canciones: (obj.stores.biblioteca ?? []).length };
 }

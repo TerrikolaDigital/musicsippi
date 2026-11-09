@@ -2,18 +2,22 @@
 // Portada de reserva cuando una canción no tiene carátula (o no carga): color estable por
 // hash del texto, dentro de la paleta de la app, más sus iniciales. Pura, sin DOM.
 
-// Pares oscuros (texto blanco con contraste AA): [principal, acompañante].
+import { inicialesDe } from './iniciales.js';
+
+// Pares vivos y variados (texto blanco grande y con sombra, legible): [principal, acompañante].
 const PARES = [
-  ['#7c3aed', '#db2777'],
-  ['#2563eb', '#7c3aed'],
-  ['#0e7490', '#2563eb'],
-  ['#047857', '#0e7490'],
-  ['#b45309', '#be123c'],
-  ['#be123c', '#7c3aed'],
-  ['#9333ea', '#2563eb'],
-  ['#c2410c', '#a21caf'],
-  ['#0f766e', '#4d7c0f'],
-  ['#4f46e5', '#0e7490'],
+  ['#e11d48', '#f97316'],
+  ['#7c3aed', '#06b6d4'],
+  ['#db2777', '#8b5cf6'],
+  ['#0891b2', '#7c3aed'],
+  ['#16a34a', '#0891b2'],
+  ['#ea580c', '#db2777'],
+  ['#4f46e5', '#ec4899'],
+  ['#0d9488', '#2563eb'],
+  ['#c026d3', '#f97316'],
+  ['#2563eb', '#06b6d4'],
+  ['#65a30d', '#0d9488'],
+  ['#dc2626', '#9333ea'],
 ];
 
 const normalizar = (t) =>
@@ -36,11 +40,7 @@ function hash(texto) {
 export function portadaGenerada(texto) {
   const limpio = typeof texto === 'string' ? texto.trim() : '';
   const [color, color2] = PARES[hash(normalizar(limpio)) % PARES.length];
-  const palabras = limpio.match(/[\p{L}\p{N}]+/gu) ?? [];
-  const iniciales = palabras
-    .slice(0, 2)
-    .map((p) => p[0].toLocaleUpperCase())
-    .join('');
+  const iniciales = inicialesDe(limpio);
   return { color, color2, iniciales: iniciales || '♪' };
 }
 

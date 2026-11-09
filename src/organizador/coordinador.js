@@ -32,6 +32,7 @@ export function crearOrganizador({
   enriquecerMusicbrainz,
   enriquecerRitmo = async () => null,
   enriquecerMusicbrainzDetalle = async () => null,
+  completarImagenes = async () => null,
   completarVectores = async () => null,
   alimentarEstados = async () => null,
   calcular,
@@ -72,6 +73,14 @@ export function crearOrganizador({
     try {
       emitir({ fase: 'generos', hechas: 0, total: 0 });
       await enriquecerDeezer({ onProgreso: progresoGeneros });
+      // Portadas que faltan: opcional, sin retrasar la organización y solo con red no medida (o con permiso).
+      // Sin onProgreso: tras «listo» no debe reaparecer el aviso de progreso. Si trae portadas, solo se avisa para recargar.
+      if (permitirDatos || !(await redMedida())) {
+        void enSegundoPlano(async () => {
+          const r = await completarImagenes();
+          if (r?.encontradas > 0) for (const f of oyentes) f({ fase: 'portadas-nuevas' }); // no cambia `estado`
+        });
+      }
       // La primera vez hay que descargar ~160 MB: con datos móviles, solo con permiso.
       if (!permitirDatos && (await redMedida()) && !(await modeloDisponible())) {
         const e = { fase: 'esperando-wifi' };

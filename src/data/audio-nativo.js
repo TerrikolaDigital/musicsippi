@@ -163,15 +163,16 @@ export function artistasDeItem(it) {
   return primero ? [primero] : [];
 }
 
-export async function buscarCanciones(query, { fetch: fetchPropio, max = 8 } = {}) {
+async function buscarEnMusic(query, tipoItem, tipo, fetchPropio, max) {
   const yt = await obtenerInnertubeBusqueda(fetchPropio);
-  const r = await yt.music.search(query, { type: 'song' });
+  const r = await yt.music.search(query, { type: tipoItem });
   const items = [];
   for (const shelf of r.contents ?? []) {
     for (const it of shelf.contents ?? []) {
-      if (it.item_type !== 'song' || !it.id) continue;
+      if (it.item_type !== tipoItem || !it.id) continue;
       items.push({
         videoId: it.id,
+        tipo,
         titulo: it.title ?? '',
         artistas: artistasDeItem(it),
         duracion: Number(it.duration?.seconds ?? 0),
@@ -181,6 +182,15 @@ export async function buscarCanciones(query, { fetch: fetchPropio, max = 8 } = {
     }
   }
   return items.slice(0, max);
+}
+
+export async function buscarCanciones(query, { fetch: fetchPropio, max = 8 } = {}) {
+  return buscarEnMusic(query, 'song', 'cancion', fetchPropio, max);
+}
+
+/** Lo que YouTube Music tiene solo como vídeo: sin pista «Topic» no sale entre las canciones. */
+export async function buscarVideos(query, { fetch: fetchPropio, max = 5 } = {}) {
+  return buscarEnMusic(query, 'video', 'video', fetchPropio, max);
 }
 
 /** Radio desde esta canción: mix automático de YouTube Music + reglas de lib/radio.js. */

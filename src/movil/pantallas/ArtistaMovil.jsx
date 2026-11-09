@@ -10,9 +10,14 @@ import { formatearTitulo } from '../../ui/formato.js';
 import { compartirMusica } from '../compartirMusica.js';
 import CarruselArtistas from '../CarruselArtistas.jsx';
 import PopularesArtista from './PopularesArtista.jsx';
-import { hacenFaltaPopulares, pestanaInicialArtista, pistasDePopulares } from '../populares.js';
+import { aleatorioDelArtista, claveArtista, hacenFaltaPopulares, pestanaInicialArtista, pistasDeDeezer, pistasDePopulares, unirCanciones } from '../populares.js';
+import { esLaQueSuena } from '../cancionSonando.js';
+import { cargarDiscografia } from '../discografia.js';
+import { deezerConIds } from '../inicio/externas.js';
 import EstadoVacio from '../EstadoVacio.jsx';
 import Pestanas from '../Pestanas.jsx';
+import '../artista.css';
+import { fotoUtil } from '../fotoUtil.js';
 
 const PESTANAS = [
   ['biblioteca', 'En tu biblioteca'],
@@ -62,25 +67,41 @@ export default function ArtistaMovil({ ctx, nav, nombre }) {
     const conocidos = lista.filter((s) => suyos.has(s.nombre.toLowerCase())).sort(porFans);
     return [...nuevos, ...conocidos].slice(0, 12).map((s) => ({
       nombre: s.nombre,
-      foto: s.fotoUrl,
+      foto: fotoUtil(s.fotoUrl),
       sub: suyos.has(s.nombre.toLowerCase()) ? 'en tu biblioteca' : 'nuevo para ti',
     }));
   }, [a, ctx.artistasBiblioteca]);
 
   const nombreMostrado = formatearTitulo(encontrado ? a.nombre : nombre);
-  const foto = (encontrado && a.fotoUrl) || ctx.fotoDeArtista(nombre);
   const esFavorito = ctx.favoritos.artistas.includes(nombre.trim().toLowerCase());
-  // La radio parte de la canción que suena: solo tiene sentido si es de este artista.
-  const suenaDeEl = !!ctx.trackActual && propias.some((t) => t.id === ctx.trackActual.id);
 
-  // ▶ y aleatorio suenan lo tuyo y, si no hay nada tuyo, las populares del artista.
+  // ▶ suena lo tuyo y, si no hay nada tuyo, las populares del artista.
   const populares = useMemo(() => (encontrado ? pistasDePopulares(a.canciones, ctx.tracks) : []), [encontrado, a, ctx.tracks]);
   const reproducibles = propias.length > 0 ? propias : populares;
-  const reproducir = (aleatorio) => {
-    if (reproducibles.length === 0) return;
-    const lista = aleatorio ? ctx.barajar(reproducibles) : reproducibles;
-    ctx.reproducirSecuencia(lista, nombreMostrado, { aleatorio });
+  // Foto del artista; si no hay una buena (Deezer devuelve una silueta genérica), la portada de una de sus canciones.
+  const foto =
+    fotoUtil(encontrado && a.fotoUrl) ??
+    fotoUtil(ctx.fotoDeArtista(nombre)) ??
+    [...propias, ...populares].map((t) => ctx.metadataDe(t.trackIdReal ?? t.id)?.coverUrl ?? t.coverUrl).find((u) => typeof u === 'string' && u.startsWith('http')) ??
+    null;
+  const reproducir = () => {
+    if (reproducibles.length > 0) ctx.reproducirSecuencia(reproducibles, nombreMostrado);
   };
+
+  // Aleatorio suena todo el artista: lo tuyo y las populares al momento, y sus álbumes en cuanto llegan.
+  const conocidas = useMemo(() => unirCanciones(propias, populares), [propias, populares]);
+  const aleatorioActivo = aleatorioDelArtista(ctx, nombre);
+  const alternarAleatorio = () => {
+    // Si la cola ya es de este artista solo cambia el orden: la canción sigue sonando.
+    if (ctx.ejeActivo?.origenArtista === claveArtista(nombre)) return ctx.alternarAleatorioCola();
+    return ctx.reproducirAleatorioArtista(conocidas, nombreMostrado, claveArtista(nombre), async () =>
+      pistasDeDeezer(await cargarDiscografia(deezerConIds(), nombre)),
+    );
+  };
+
+  // La radio parte de la canción que suena: solo tiene sentido si es de este artista.
+  const suenaDeEl =
+    !!ctx.trackActual && (ctx.esDeArtista(ctx.trackActual, nombre) || conocidas.some((t) => esLaQueSuena(ctx.trackActual, t)));
 
   async function agregar(c) {
     if (estados[c.trackId] === 'agregando') return; // evita el doble toque
@@ -114,16 +135,17 @@ export default function ArtistaMovil({ ctx, nav, nombre }) {
           {modos.length > 0 && ` · en ${modos.join(' y ')}`}
         </p>
 
-      <div className="detalle-modo-acciones">
+      <div className={`detalle-modo-acciones${suenaDeEl ? ' con-radio' : ''}`}>
         <button
-          className="m-sec"
+          className={`m-sec${aleatorioActivo ? ' on' : ''}`}
           aria-label="Reproducir en aleatorio"
-          disabled={reproducibles.length === 0}
-          onClick={() => reproducir(true)}
+          aria-pressed={aleatorioActivo}
+          disabled={conocidas.length === 0}
+          onClick={alternarAleatorio}
         >
           <IconoM nombre="aleatorio" />
         </button>
-        <button className="m-play" aria-label="Reproducir" disabled={reproducibles.length === 0} onClick={() => reproducir(false)}>
+        <button className="m-play" aria-label="Reproducir" disabled={reproducibles.length === 0} onClick={reproducir}>
           <IconoM nombre="play" tamano={26} />
         </button>
         {suenaDeEl && (
@@ -173,7 +195,7 @@ export default function ArtistaMovil({ ctx, nav, nombre }) {
                 key={t.id}
                 track={t}
                 meta={ctx.metadataDe(t.id)}
-                activa={ctx.trackActual?.id === t.id}
+                activa={esLaQueSuena(ctx.trackActual, t)}
                 pausada={!ctx.sonando}
                 onTocar={() => ctx.reproducirLista(t, propias, nombreMostrado)}
                 onMas={() => nav.abrirCapa({ tipo: 'hoja', trackId: t.id })}
@@ -218,7 +240,7 @@ export default function ArtistaMovil({ ctx, nav, nombre }) {
               key={`${c.trackId}-${i}`}
               track={c}
               meta={{ coverUrl: c.coverUrl, duracionMs: c.duracionMs }}
-              activa={ctx.trackActual?.id === c.trackId || ctx.trackActual?.id === `album-${c.trackId}`}
+              activa={esLaQueSuena(ctx.trackActual, c)}
               pausada={!ctx.sonando}
               onTocar={() => ctx.reproducirCancionesArtista(i)}
               iconoMas={yaEsta ? 'puntos-v' : 'mas'}

@@ -9,13 +9,16 @@ import {
   guardarValorConfig,
 } from './lib/db.js';
 import { anotarCambio, descartarCambios, CLAVE_CAMBIOS } from './lib/journal.js';
+import { borradosPendientes } from './borrados.js';
 import { podarEjesVacios } from '../../scripts/lib/clasificar.mjs';
 import { unirModos as unirModosEnDatos } from '../../scripts/lib/unir-modos.mjs';
 import ejesSemilla from '../../data/ejes.json';
 import bibliotecaSemilla from '../../data/biblioteca.json';
 import metadataSemilla from 'virtual:metadata-movil';
+import { combinarMetadataLocal } from './combinar-metadata.js';
 import evidenciaSemilla from 'virtual:evidencia-movil';
 import { guardarEvidenciaPC } from '../organizador/evidencia-movil.js';
+import { entradasCacheDelPc } from './revisar-versiones.js';
 import favoritosSemilla from '../../data/favoritos.json';
 import { esquemaDeEjes, puedeFusionarSemilla } from '../organizador/migrar-moods.js';
 import { excluirDeEstado, perdonarEnEstado } from '../organizador/alimentar-estados.js';
@@ -32,13 +35,21 @@ const almacenConfig = { obtenerValorConfig, guardarValorConfig };
  *   cacheYoutube?: Record<string,string>, metadata?: {tracks: object},
  *   evidencia?: Record<string,{generos: string[], senal: string|null}>}} datos
  */
-export async function fusionarDatosDelPC(datos, opciones = {}) {
+export async function fusionarDatosDelPC(datosPC, opciones = {}) {
+  let datos = datosPC;
   // `pcManda` (sincronización): los cambios del móvil ya se subieron al PC,
   // así que lo que llega es la versión completa. Se toma tal cual, incluido lo
   // que se quitó en el PC (modos, me gusta, canciones). Sin `pcManda` (datos
   // del build, que pueden ser más viejos) se protege lo hecho en el móvil.
   const { pcManda = false } = opciones;
   const previos = new Map((await obtenerTodos('biblioteca')).map((t) => [t.id, t]));
+  // Lo quitado en el móvil que el PC aún no recibió no se devuelve (el build o un envío a medias lo traen de vuelta).
+  const borrados = borradosPendientes(await obtenerValorConfig(CLAVE_CAMBIOS, []));
+  datos = {
+    ...datos,
+    tracks: datos.tracks.filter((t) => !borrados.tracks.has(t.id)),
+    ejes: datos.ejes.filter((e) => !borrados.ejes.has(e.id)),
+  };
   if (pcManda) {
     const idsPC = new Set(datos.tracks.map((t) => t.id));
     await Promise.all([...previos.keys()].filter((id) => !idsPC.has(id)).map((id) => borrarRegistro('biblioteca', id)));
@@ -57,7 +68,11 @@ export async function fusionarDatosDelPC(datos, opciones = {}) {
   const ejesPrevios = await obtenerTodos('ejes');
   const idsPC = new Set(datos.ejes.map((e) => e.id));
   await Promise.all(datos.ejes.map((e) => guardarRegistro('ejes', e)));
-  await Promise.all(ejesPrevios.filter((e) => !idsPC.has(e.id)).map((e) => guardarRegistro('ejes', e)));
+  // Con `pcManda` el PC ya tiene todo lo del móvil: una lista que allí no está se quitó allí (antes se
+  // conservaba y el siguiente envío de /ejes la devolvía al PC). Sin lista del PC no se toca nada.
+  if (pcManda && idsPC.size > 0) {
+    await Promise.all(ejesPrevios.filter((e) => !idsPC.has(e.id)).map((e) => borrarRegistro('ejes', e.id)));
+  }
 
   if (datos.favoritos) {
     const favMovil = pcManda
@@ -76,13 +91,8 @@ export async function fusionarDatosDelPC(datos, opciones = {}) {
   }
   // videoId ya resueltos en el PC: el móvil no tiene que volver a buscarlos.
   if (datos.cacheYoutube) {
-    await Promise.all(
-      Object.entries(datos.cacheYoutube)
-        .filter(([trackId]) => trackId !== 'version')
-        .map(([trackId, v]) =>
-          guardarRegistro('cacheYoutube', { trackId, videoId: typeof v === 'string' ? v : v?.videoId })
-        )
-    );
+    const propios = await obtenerTodos('cacheYoutube');
+    await Promise.all(entradasCacheDelPc(datos.cacheYoutube, propios).map((e) => guardarRegistro('cacheYoutube', e)));
   }
   // Portadas/álbum/año: lo del PC pisa al del build (es más nuevo).
   if (datos.metadata?.tracks) {
@@ -145,18 +155,8 @@ export function guardarTrackLocal(track) {
 
 export async function obtenerMetadata() {
   const registros = await obtenerTodos('metadataLocal');
-  // Base: la metadata del escritorio que trae el build; encima, lo agregado en el móvil.
-  const tracks = { ...metadataSemilla.tracks };
-  for (const r of registros) {
-    tracks[r.trackId] = {
-      album: r.album ?? null,
-      anio: r.anio ?? null,
-      duracionMs: r.duracionMs ?? null,
-      artistaMbid: null,
-      coverUrl: r.coverUrl ?? null,
-      fotoArtista: r.fotoArtista ?? null,
-    };
-  }
+  // Base: la metadata del escritorio que trae el build; encima, lo agregado en el móvil, campo a campo.
+  const tracks = combinarMetadataLocal(metadataSemilla, registros);
   return { tracks, artistas: metadataSemilla.artistas ?? {} };
 }
 
@@ -321,6 +321,8 @@ export async function guardarEjes(payload) {
   await Promise.all(payload.ejes.map((e) => guardarRegistro('ejes', e)));
   // /api/ejes del PC reemplaza la lista entera: al reenviarlo se combina con la
   // del PC (ver sincronizar-movil.js) para no borrar modos creados allí.
-  await registrarCambio('ejes', payload);
+  // `eliminados` es la lápida: sin ella el PC devuelve la lista quitada al combinar (ver subir-cambios.js).
+  const eliminados = actuales.filter((e) => !idsNuevos.has(e.id)).map((e) => e.id);
+  await registrarCambio('ejes', eliminados.length ? { ...payload, eliminados } : payload);
   return { ok: true };
 }

@@ -69,6 +69,11 @@ test('semillaRecomendados: artistas con más canciones primero, tope y sin vací
   assert.deepEqual(semillaRecomendados([]), []);
 });
 
+test('previewDe conserva la miniatura como portada', () => {
+  const p = previewDe({ videoId: 'abc', artistaSugerido: 'Ar', tituloSugerido: 'Ti', thumbnail: 'https://x/t.jpg' });
+  assert.equal(p.coverUrl, 'https://x/t.jpg');
+});
+
 test('previewDe: track de vista previa con id prefijado y el videoId', () => {
   const p = previewDe({ videoId: 'abc', artistaSugerido: 'Ar', tituloSugerido: 'Ti' });
   assert.equal(p.id, 'preview-abc');
