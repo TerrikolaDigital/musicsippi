@@ -1,15 +1,21 @@
 /**
  * Prepara una versión para publicar, DESPUÉS de `gradlew assembleRelease`:
- * copia el APK a dist-publicar/musicsippi-<versionName>.apk y escribe version.json.
- * No sube nada a internet (ver docs/actualizaciones.md).
+ * copia el APK a dist-publicar/ con dos nombres (musicsippi-<versionName>.apk y la copia de
+ * nombre fijo Musicsippi.apk, la del enlace de compartir) y escribe version.json.
+ * No sube nada a internet (ver docs/actualizaciones.md): imprime la orden para hacerlo.
  *
- *   node scripts/publicar-version.mjs --base-url https://host/ruta [--notas "a|b"] [--salida carpeta] [--apk ruta]
+ *   node scripts/publicar-version.mjs [--notas "a|b"] [--base-url https://host/ruta] [--salida carpeta] [--apk ruta]
+ * Sin --base-url usa la carpeta de esta versión en GitHub Releases.
  */
 import { execFileSync } from 'node:child_process';
-import { copyFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
+  APK_FIJO,
+  archivosAPublicar,
+  baseUrlDeVersion,
+  comandoPublicar,
   commitsDesdeUltima,
   construirManifiesto,
   nombreApk,
@@ -50,17 +56,31 @@ try {
 
   const destino = join(salida, nombreApk(versionName));
   copyFileSync(apk, destino);
+  // Copia de nombre fijo: es la que descarga el enlace de «Compartir Musicsippi».
+  const fijo = join(salida, APK_FIJO);
+  copyFileSync(apk, fijo);
   const manifiesto = construirManifiesto({
     versionCode,
-    baseUrl: args.baseUrl,
+    // Sin --base-url, la carpeta de esta versión en GitHub: no hay que escribir el número a mano.
+    baseUrl: args.baseUrl || baseUrlDeVersion(versionName),
     notas: normalizarNotas(args.notas, asuntos),
   });
   writeFileSync(manifiestoRuta, JSON.stringify(manifiesto, null, 2) + '\n');
 
-  console.log(`APK:       ${destino}`);
+  console.log(`APK:        ${destino}`);
+  console.log(`Copia fija: ${fijo}`);
   console.log(`Manifiesto: ${manifiestoRuta}`);
   console.log(`Versión ${versionName} (código ${versionCode}) · ${manifiesto.notas.length} notas`);
-  if (!args.baseUrl) console.log('Nota: sin --base-url la url del manifiesto es relativa; ponla absoluta antes de publicar.');
+  console.log(`Descarga:   ${manifiesto.url}`);
+
+  const esperados = archivosAPublicar(versionName);
+  const sobran = readdirSync(salida).filter((n) => !esperados.includes(n));
+  if (sobran.length) console.warn(`AVISO: en ${salida} hay archivos de otra publicación (${sobran.join(', ')}): no los subas.`);
+
+  console.log('\nPara publicar (sube a internet; solo con el sí del usuario):');
+  console.log(`  ${comandoPublicar(versionName, args.salida)}`);
+  console.log('Después, comprueba que los enlaces de compartir responden:');
+  console.log('  npm run comprobar-descargas');
 } catch (e) {
   console.error(`Error: ${e.message}`);
   process.exit(1);

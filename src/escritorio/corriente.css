@@ -2746,3 +2746,122 @@ html:has(.app-escritorio) body {
     min-height: 260px;
   }
 }
+
+/* ---- Ayuda de escritorio: mismo diseño que la del móvil (secciones plegables con icono de color) ---- */
+.app-escritorio .ayuda-mv { max-width: 760px; padding: 0 4px 24px; }
+.app-escritorio .ayuda-mv details { border-bottom: 1px solid rgb(255 255 255 / 0.07); }
+.app-escritorio .ayuda-mv summary {
+  min-height: 72px;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  font: 650 19px/1.2 var(--fuente-display);
+  font-variation-settings: var(--fraunces-blando);
+  cursor: pointer;
+  list-style: none;
+}
+.app-escritorio .ayuda-mv summary::-webkit-details-marker { display: none; }
+.app-escritorio .ayuda-mv summary::after {
+  content: '';
+  margin-left: auto;
+  width: 8px;
+  height: 8px;
+  border-right: 2px solid var(--tenue);
+  border-bottom: 2px solid var(--tenue);
+  transform: rotate(45deg);
+  transition: transform 0.2s;
+  flex: none;
+}
+.app-escritorio .ayuda-mv details[open] summary::after { transform: rotate(-135deg); }
+.app-escritorio .ayuda-mv-icono {
+  width: 48px;
+  height: 48px;
+  flex: none;
+  display: grid;
+  place-items: center;
+  border-radius: var(--r-control);
+  color: var(--c);
+  background: color-mix(in srgb, var(--c) 20%, transparent);
+}
+.app-escritorio .ayuda-mv-titulo { min-width: 0; }
+.app-escritorio .ayuda-mv ul {
+  margin: 0;
+  padding: 0 0 16px;
+  list-style: none;
+  display: grid;
+  gap: 10px;
+  color: var(--tenue);
+  font-size: 15px;
+  line-height: 1.45;
+}
+.app-escritorio .ayuda-mv li b { color: var(--texto); font-weight: 600; }
+.app-escritorio .ayuda-mv-ilu {
+  display: flex;
+  align-items: stretch;
+  justify-content: space-between;
+  gap: 6px;
+  margin: 0 0 16px;
+  padding: 12px 10px;
+  border-radius: 20px;
+  background: color-mix(in srgb, var(--c) 10%, transparent);
+  color: var(--texto);
+}
+.app-escritorio .ayuda-mv-ilu small { font-size: 11px; line-height: 1.2; color: var(--tenue); }
+.app-escritorio .ayuda-mv-iconos span,
+.app-escritorio .ayuda-mv-sync span {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  text-align: center;
+}
+.app-escritorio .ayuda-mv-iconos span:first-child,
+.app-escritorio .ayuda-mv-iconos span:first-child small { color: var(--c); }
+.app-escritorio .ayuda-mv-sync span { padding: 8px 4px; }
+.app-escritorio .ayuda-mv-sync svg { width: 30px; height: 30px; color: var(--c); }
+.app-escritorio .ayuda-mv-modos span {
+  flex: 1;
+  min-height: 56px;
+  display: grid;
+  place-items: center;
+  padding: 4px;
+  border-radius: 14px;
+  font: 650 13px/1.15 var(--fuente-display);
+  text-align: center;
+  background: color-mix(in srgb, var(--c) 38%, transparent);
+}
+.app-escritorio .ayuda-mv-modos .ayuda-mv-mas { flex: none; width: 56px; background: rgb(255 255 255 / 0.1); }
+.app-escritorio .ayuda-mv-menu { flex-direction: column; gap: 2px; }
+.app-escritorio .ayuda-mv-menu .ayuda-mv-fila {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 4px 8px 8px;
+  color: var(--tenue);
+}
+.app-escritorio .ayuda-mv-menu .ayuda-mv-opcion {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-height: 36px;
+  padding: 0 8px;
+  font-size: 14px;
+}
+.app-escritorio .ayuda-mv-menu .ayuda-mv-opcion svg { color: var(--c); }
+.app-escritorio .ayuda-mv-enlaces { display: flex; flex-wrap: wrap; gap: 8px; padding: 0 0 20px; }
+.app-escritorio .ayuda-mv-enlaces button {
+  min-height: 44px;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 16px;
+  border: 0;
+  border-radius: 999px;
+  font: 600 15px var(--fuente-titulos);
+  color: var(--texto);
+  background: color-mix(in srgb, var(--c) 24%, transparent);
+  cursor: pointer;
+}
+.app-escritorio .ayuda-mv-enlaces button svg { color: var(--c); }

@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { traducirError } from '../../scripts/lib/traducir-error.mjs';
 import { confirmarModos } from '../data/modos.js';
 import { colorDeEje, formatearTitulo } from '../ui/formato.js';
@@ -9,7 +9,9 @@ import { IconoC } from './iconosCorriente.jsx';
 import { TuSemana, Estadisticas } from './ResumenEstadisticas.jsx';
 import Corriente from '../movil/Corriente.jsx';
 import { saludo } from '../movil/formato.js';
+import { buscarEnBiblioteca } from '../movil/anadirActual.js';
 import './corriente.css';
+import BienvenidaEscritorio from './BienvenidaEscritorio.jsx';
 
 // Destinos de la orilla, en el orden de la maqueta. `sep` = hueco entre grupos.
 const DESTINOS_ORILLA = [
@@ -74,6 +76,7 @@ export default function AppEscritorio({ ctx }) {
     artistasBiblioteca,
     artistasDeEje,
     artistasSolos,
+    asegurarEnBiblioteca,
     asignarManual,
     avisoModosNuevos,
     avisoSalto,
@@ -173,10 +176,18 @@ export default function AppEscritorio({ ctx }) {
     tracksVisibles,
     tracksVista,
     verLetras,
+    videoIdDeEscritorio,
     vista,
     volumen,
     volverAtras,
   } = ctx;
+
+  // La copia de la biblioteca de la canción que suena, aunque suene con otra identidad (radio, álbum sin
+  // añadir, vista previa): de ella salen el corazón y «Agregar». Mismo criterio que el reproductor del móvil.
+  const guardadaActual = useMemo(
+    () => buscarEnBiblioteca(trackActual, tracks, videoIdDeEscritorio),
+    [trackActual, tracks, videoIdDeEscritorio]
+  );
 
   // Qué destino de la orilla está activo: mismos criterios que tenían antes los
   // botones de la cabecera y del submenú.
@@ -298,7 +309,7 @@ export default function AppEscritorio({ ctx }) {
 
   return <div className="app app-escritorio">
       {mostrarOnboarding && (
-        <OnboardingTour onCerrar={cerrarOnboarding} esDemo={esDemo} onIrADestino={irADestinoTour} />
+        <BienvenidaEscritorio onCerrar={cerrarOnboarding} onIrADestino={irADestinoTour} />
       )}
       {revisionModos && (
         <PantallaRevisionModos
@@ -974,8 +985,10 @@ export default function AppEscritorio({ ctx }) {
             coverUrl:
               metadataDe(trackActual.trackIdReal ?? trackActual.id).coverUrl ?? trackActual.coverUrl ?? null,
           }}
-          favorito={ejesDelTrackActual.some((e) => e.ejeId === 'favoritos')}
+          favorito={!!guardadaActual?.ejes?.some((e) => e.ejeId === 'favoritos')}
           onFavorito={alternarFavorito}
+          guardada={guardadaActual}
+          onAsegurar={asegurarEnBiblioteca}
           cola={cola}
           indice={indice}
           setIndice={setIndice}

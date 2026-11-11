@@ -2,11 +2,12 @@
 // «Tu semana» y «Estadísticas» en escritorio. Toda la lógica es la del móvil (src/movil/resumen/ y
 // src/movil/estadisticas.js, funciones puras); aquí solo se dibuja en formato de página. «Tu semana»
 // sigue la regla del móvil: solo entra lo que tiene imagen real, nunca iniciales.
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { PortadaImg } from '../movil/PortadaGenerada.jsx';
 import { calcularEstadisticas } from '../movil/estadisticas.js';
 import { armarPantallas, armarResumen, rangoResumen, textoMinutos, ventanaResumenAnual } from '../movil/resumen/resumen.js';
-import { armarDatosTarjeta, esPortadaReal } from '../movil/resumen/datosTarjetas.js';
+import { armarDatosTarjeta } from '../movil/resumen/datosTarjetas.js';
+import { cargarSinCors, crearFuentes, primeraVerificada, verificarUrls } from '../movil/resumen/imagenesResumen.js';
 import { colorTarjeta, duracionLarga } from '../movil/formato.js';
 import { formatearTitulo } from '../ui/formato.js';
 import { IconoC } from './iconosCorriente.jsx';
@@ -29,11 +30,26 @@ function useDuracionDe(ctx) {
   }, [ctx.tracks, ctx.metadataDe]);
 }
 
-/** Portada real de la canción, o null (nunca la de otra canción). */
-const urlPortada = (ctx, track) => {
-  const u = track ? ctx.metadataDe(track.trackIdReal ?? track.id)?.coverUrl ?? track.coverUrl : null;
-  return esPortadaReal(u) ? u : null;
-};
+/**
+ * Fuentes de imagen como en el móvil (`crearFuentes`): para cada canción, su portada, la de la misma canción en
+ * otra versión, la miniatura del vídeo y la foto de cada artista de un dúo; para cada artista, su foto o las de
+ * las partes del dúo y portadas de sus canciones. Listas por orden de preferencia.
+ */
+function useFuentes(ctx) {
+  // `ctx.fotoDeArtista` cambia en cada render de la app: se lee por ref para no reiniciar las fuentes.
+  const fotoRef = useRef(ctx.fotoDeArtista);
+  fotoRef.current = ctx.fotoDeArtista;
+  return useMemo(
+    () =>
+      crearFuentes({
+        tracks: ctx.tracks,
+        metadataDe: ctx.metadataDe,
+        fotoDeArtista: (n) => fotoRef.current(n),
+        respaldoDe: (t) => ctx.metadataDe(t.trackIdReal ?? t.id)?.coverRespaldo ?? null,
+      }),
+    [ctx.tracks, ctx.metadataDe],
+  );
+}
 
 function Selector({ opciones, valor, onCambio, etiqueta }) {
   return (
@@ -67,18 +83,40 @@ export function TuSemana({ ctx, onIrAEstadisticas, onIrABuscar }) {
   const [tipo, setTipo] = useState('semana');
   const duracionDe = useDuracionDe(ctx);
 
-  const res = useMemo(() => {
+  // Como en el móvil: se comprueba qué urls cargan de verdad y se usa la primera que carga; lo que no tenga
+  // ninguna se descarta (en «Tu semana» nunca iniciales).
+  const fuentes = useFuentes(ctx);
+  const [verif, setVerif] = useState(null); // Set de urls que cargan; null = comprobando
+  const armar = (portadaDe, fotoDe, maxAlternativas) => {
     const { desde, hasta } = rangoResumen(tipo);
-    return armarResumen(ctx.historial, ctx.tracks, { desde, hasta, ejes: ctx.ejes, duracionDe, metadataDe: ctx.metadataDe, portadaDe: (t) => urlPortada(ctx, t) });
-  }, [ctx.historial, ctx.tracks, ctx.ejes, ctx.metadataDe, duracionDe, tipo]);
+    return armarResumen(ctx.historial, ctx.tracks, { desde, hasta, ejes: ctx.ejes, duracionDe, metadataDe: ctx.metadataDe, portadaDe, fotoDe, maxAlternativas });
+  };
+  const previo = useMemo(
+    () => armar((t) => fuentes.portada(t)[0], (n) => fuentes.foto(n)[0], 12),
+    [ctx.historial, ctx.tracks, ctx.ejes, ctx.metadataDe, duracionDe, tipo, fuentes],
+  );
+  const porVerificar = useMemo(() => {
+    const canciones = [...previo.candidatasBucle, ...previo.descubrimientos, ...previo.topCanciones.slice(0, 5), ...previo.topAlbumes];
+    return [...canciones.flatMap((c) => fuentes.portada(c.track)), ...previo.topArtistas.slice(0, 5).flatMap((a) => fuentes.foto(a.nombre))];
+  }, [previo, fuentes]);
+  const claveUrls = porVerificar.join('|');
+  useEffect(() => {
+    let vivo = true;
+    setVerif(null);
+    verificarUrls(porVerificar, cargarSinCors).then((v) => vivo && setVerif(v));
+    return () => {
+      vivo = false;
+    };
+  }, [claveUrls]);
+  const imgs = useMemo(
+    () => ({ portada: (t) => primeraVerificada(fuentes.portada(t), verif), foto: (n) => primeraVerificada(fuentes.foto(n), verif) }),
+    [fuentes, verif],
+  );
+  const res = useMemo(() => (verif ? armar(imgs.portada, imgs.foto) : previo), [verif, imgs, previo]);
   const pantallas = useMemo(() => armarPantallas(res, tipo), [res, tipo]);
   const eje = res.modo ? ctx.ejes.find((e) => e.id === res.modo.ejeId) : null;
   const color = eje ? colorTarjeta(eje) : '#7c5cff';
-  // Solo artistas con foto real (listas alineadas con sus direcciones).
-  const imagenes = useMemo(
-    () => armarDatosTarjeta(res, tipo, color, { portada: (t) => urlPortada(ctx, t), foto: (n) => ctx.fotoDeArtista(n) }),
-    [res, tipo, color, ctx.metadataDe, ctx.fotoDeArtista],
-  );
+  const imagenes = useMemo(() => armarDatosTarjeta(res, tipo, color, { portada: imgs.portada, foto: imgs.foto }), [res, tipo, color, imgs]);
 
   const pant = (id) => pantallas.find((p) => p.id === id);
   const minutos = pant('minutos');
@@ -212,6 +250,7 @@ const TEXTO_PERIODO = { semana: 'esta semana', mes: 'este mes', anio: 'este año
 export function Estadisticas({ ctx, onIrASemana, onIrABuscar }) {
   const [periodo, setPeriodo] = useState('mes');
   const duracionDe = useDuracionDe(ctx);
+  const fuentes = useFuentes(ctx);
   const r = useMemo(
     () => calcularEstadisticas({ historial: ctx.historial, tracks: ctx.tracks, ejes: ctx.ejes, periodo, duracionDe }),
     [ctx.historial, ctx.tracks, ctx.ejes, periodo, duracionDe],
@@ -262,13 +301,14 @@ export function Estadisticas({ ctx, onIrASemana, onIrABuscar }) {
             <ol className="res-estad-lista">
               {topC.map((c) => {
                 const track = c.track;
+                const lista = fuentes.portada(track);
                 return (
                   <li key={c.trackId}>
                     <button
                       disabled={!track}
                       onClick={() => track && ctx.reproducirLista(track, topC.map((x) => x.track).filter(Boolean), 'Estadísticas')}
                     >
-                      <PortadaImg className="res-estad-portada" src={urlPortada(ctx, track)} texto={c.titulo} loading="lazy" />
+                      <PortadaImg className="res-estad-portada" src={lista[0]} respaldo={lista[1]} texto={c.titulo} loading="lazy" />
                       <span className="res-estad-txt">
                         <b>{formatearTitulo(c.titulo)}</b>
                         <small>{formatearTitulo(c.artista)}</small>
@@ -286,15 +326,18 @@ export function Estadisticas({ ctx, onIrASemana, onIrABuscar }) {
             <section aria-labelledby="est-artistas">
               <h2 id="est-artistas">Artistas más escuchados</h2>
               <ol className="res-estad-artistas">
-                {r.topArtistas.map((a) => (
+                {r.topArtistas.map((a) => {
+                  const lista = fuentes.foto(a.nombre);
+                  return (
                   <li key={a.nombre}>
                     <button onClick={() => ctx.abrirArtista(a.nombre)}>
-                      <PortadaImg className="res-estad-foto" src={ctx.fotoDeArtista(a.nombre)} texto={a.nombre} loading="lazy" />
+                      <PortadaImg className="res-estad-foto" src={lista[0]} respaldo={lista[1]} texto={a.nombre} loading="lazy" />
                       <b>{formatearTitulo(a.nombre)}</b>
                       <small>{a.n}×</small>
                     </button>
                   </li>
-                ))}
+                  );
+                })}
               </ol>
             </section>
           )}

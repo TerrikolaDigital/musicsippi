@@ -21,7 +21,8 @@
     "electron:dev": "electron .",
     "electron:build": "electron-builder",
     "empaquetar": "node scripts/empaquetar.mjs",
-    "publicar-version": "node scripts/publicar-version.mjs"
+    "publicar-version": "node scripts/publicar-version.mjs",
+    "comprobar-descargas": "node scripts/comprobar-descargas.mjs"
   },
   "dependencies": {
     "@capacitor/android": "8.5.3",

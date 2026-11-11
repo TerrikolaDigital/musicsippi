@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { nivelDeVersion, ordenarPorParecido, hayVersionFiel, mejorVersionParaRevisar } from './elegir-version.js';
+import { nivelDeVersion, ordenarPorParecido, hayVersionFiel, mejorVersionParaRevisar, mejorVersionSabiendoLaGuardada } from './elegir-version.js';
 
 const cancion = (videoId, titulo, artistas, duracion = 200) => ({ videoId, titulo, artistas, duracion, tipo: 'cancion' });
 const video = (videoId, titulo, canal, duracion = 200) => ({ videoId, titulo, artistas: [canal], duracion, tipo: 'video' });
@@ -124,4 +124,40 @@ test('el artista citado en feat. del candidato cuenta como artista, pero un cove
   const ref = { artista: 'Sia', titulo: 'Thunderclouds' };
   assert.equal(nivelDeVersion(cancion('o', 'Thunderclouds (feat. Sia, Diplo & Labrinth)', ['LSD']), ref), 0);
   assert.ok(nivelDeVersion(cancion('c', 'Thunderclouds (Sia cover)', ['Alguien']), ref) >= 2);
+});
+
+// --- PC: revisar conociendo los datos del vídeo guardado (el servidor puede pedirlos) ---
+
+test('sabiendo la guardada: un vídeo ajeno se cambia por la canción aunque sea de otro artista', () => {
+  const ref = { titulo: 'September - Piano Instrumental', artista: 'Chilled Teddy', duracionS: null };
+  const ajeno = video('junk', 'Fragrant Autumn Garden with a Little Squirrel 🐿️ Gentle Celtic Music for Reading, Study & Relax', 'Melody Tales', 7246);
+  const lista = [cancion('sam', 'September (Piano Instrumental)', ['Sam Ellis'], 150), cancion('otra', 'Autumn Leaves', ['Piano Covers'], 180)];
+  assert.equal(mejorVersionParaRevisar('junk', lista, ref), null); // la regla del móvil no lo toca: no hay versión fiel
+  assert.equal(mejorVersionSabiendoLaGuardada(ajeno, lista, ref), 'sam');
+});
+
+test('sabiendo la guardada: con versión fiel entre los resultados gana la fiel', () => {
+  const ref = { titulo: 'Highway to Hell', artista: 'AC/DC', duracionS: 208 };
+  const cover = video('cover', 'Highway to Hell (AC/DC Cover)', 'Dan Vasc', 210);
+  const lista = [cancion('orig', 'Highway to Hell', ['AC/DC'], 208), cancion('otro', 'Highway to Hell', ['Tributo'], 208)];
+  assert.equal(mejorVersionSabiendoLaGuardada(cover, lista, ref), 'orig');
+});
+
+test('sabiendo la guardada: no toca la que ya es fiel ni la que comparte título (no se sabe si es peor)', () => {
+  const ref = { titulo: 'Highest In The Room', artista: 'Mandrazo', duracionS: null };
+  const delArtista = video('fiel', 'Mandrazo - Highest In The Room', 'Trap Nation', 140);
+  const suCover = video('cover', 'Highest In The Room (Mandrazo Cover) (Magic Cover Release)', 'Magic Trap Music', 139);
+  const lista = [cancion('travis', 'HIGHEST IN THE ROOM', ['Travis Scott'], 176)];
+  assert.equal(mejorVersionSabiendoLaGuardada(delArtista, lista, ref), null);
+  assert.equal(mejorVersionSabiendoLaGuardada(suCover, lista, ref), null);
+});
+
+test('sabiendo la guardada: un vídeo ajeno se queda si lo que hay tampoco es la canción o es un cover', () => {
+  const ref = { titulo: 'T6 E11 El amor no es una jaula', artista: 'Nilda Chiaraviglio', duracionS: null };
+  const ajeno = video('junk', 'T2 E11 Cómo salir de la tristeza parte 1', 'Ivan Martz', 1376);
+  const nadaQueVer = [cancion('x', 'Narcisista: Rompiendo el Bucle', ['Maritza R Casanova'], 270)];
+  assert.equal(mejorVersionSabiendoLaGuardada(ajeno, nadaQueVer, ref), null);
+  const refCancion = { titulo: 'Mirrors - Piano Instrumental', artista: 'Box of Music', duracionS: null };
+  const soloKaraoke = [video('k', 'Mirrors - Piano Instrumental (Karaoke Version)', 'Sing2Piano', 290)];
+  assert.equal(mejorVersionSabiendoLaGuardada(video('junk', 'Ambient Meditation Studying Relaxing Music', 'Stefano', 3000), soloKaraoke, refCancion), null);
 });

@@ -10,7 +10,7 @@ import { parseFile } from 'music-metadata';
 import { resolverDataDir } from './scripts/lib/data-dir.mjs';
 import { idTrack } from './scripts/lib/id-track.mjs';
 import { armarRadio, pistaDeNodo } from './src/data/lib/radio.js';
-import { ordenarPorParecido } from './src/data/elegir-version.js';
+import { crearVersionesPc, crearBusquedasMusic } from './scripts/lib/versiones-pc.mjs';
 import {
   limpiarTitulo,
   clasificar,
@@ -44,7 +44,7 @@ import {
   mejorCandidato,
 } from './scripts/lib/clasificar-embeddings.mjs';
 
-// Repo público, sin autenticación, que el autor mantiene actualizado con
+// Repo público, sin autenticación, que se mantiene actualizado con
 // data/fuentes.json (vocabulario/umbrales/transversales) — ver Tarea 11 del
 // plan de modos dinámicos. Si el repo todavía no existe, verificarActualizacion
 // devuelve {aplicado:false, errores:[`HTTP ${status}`]} sin lanzar excepción.
@@ -246,10 +246,10 @@ const MAX_CANDIDATOS = 5;
  * un falso positivo (aprobar algo que allá no). Por eso se mandan todos y el
  * cliente descarta el que le falle de verdad — ver /descartar-video.
  */
-async function buscarCandidatosConInnertube(q, ref = null) {
+async function buscarVideosYoutube(q) {
   const yt = await obtenerInnertube();
   const r = await yt.search(q, { type: 'video' });
-  const videos = (r.videos ?? [])
+  return (r.videos ?? [])
     .filter((v) => v.id)
     .map((v) => ({
       videoId: v.id,
@@ -258,12 +258,31 @@ async function buscarCandidatosConInnertube(q, ref = null) {
       artistas: [v.author?.name].filter(Boolean),
       duracion: Number(v.duration?.seconds ?? 0),
     }));
-  // Antes ganaba siempre el primero, y esta caché es además la semilla del móvil.
-  return ordenarPorParecido(videos, ref).map((v) => v.videoId).slice(0, MAX_CANDIDATOS);
 }
 
-async function buscarConInnertube(q) {
-  const candidatos = await buscarCandidatosConInnertube(q);
+// Título, canal y duración de un vídeo ya guardado: para saber si es la canción al revisarlo.
+async function datosDeVideo(videoId) {
+  const yt = await obtenerInnertube();
+  const b = (await yt.getBasicInfo(videoId)).basic_info;
+  return {
+    videoId,
+    tipo: 'video',
+    titulo: b.title ?? '',
+    artistas: [b.author ?? b.channel?.name].filter(Boolean),
+    duracion: Number(b.duration ?? 0),
+  };
+}
+
+// Misma elección y revisión de versión que el móvil — ver scripts/lib/versiones-pc.mjs.
+const versionesPc = crearVersionesPc({ dataDir, ...crearBusquedasMusic(), buscarVideosYoutube, datosDeVideo });
+
+// Antes ganaba siempre el primer vídeo, y esta caché es además la semilla del móvil.
+async function buscarCandidatosConInnertube(q, ref = null) {
+  return (await versionesPc.ordenados(q, ref)).slice(0, MAX_CANDIDATOS);
+}
+
+async function buscarConInnertube(q, ref = null) {
+  const candidatos = await buscarCandidatosConInnertube(q, ref);
   return candidatos[0] ?? null;
 }
 
@@ -302,9 +321,9 @@ function descartadosDe(mapa, trackId) {
  * ninguna de las dos, devuelve null para que el llamador lo trate como "no
  * encontrado" en vez de abortar todo un lote.
  */
-async function buscarVideoIdConFallback(q, apiKey) {
+async function buscarVideoIdConFallback(q, apiKey, ref = null) {
   try {
-    return await buscarConInnertube(q);
+    return await buscarConInnertube(q, ref);
   } catch (eInnertube) {
     if (!apiKey) return null;
     try {
@@ -539,10 +558,23 @@ function apiLocal(env) {
             const cache = existsSync(cachePath)
               ? JSON.parse(readFileSync(cachePath, 'utf8'))
               : {};
+            const tituloPista = url.searchParams.get('titulo');
+            const artistaPista = url.searchParams.get('artista');
             const referenciaDeTrack = (id) => {
               const ruta = join(dataDir, 'biblioteca.json');
               const t = existsSync(ruta) ? JSON.parse(readFileSync(ruta, 'utf8')).tracks?.find((x) => x.id === id) : null;
-              return t ? { titulo: t.titulo, artista: t.artista, duracionS: null } : null;
+              if (t) {
+                const duracionMs = combinarMetadata(dataDir).tracks?.[id]?.duracionMs;
+                return {
+                  titulo: t.titulo,
+                  artista: t.artista,
+                  duracionS: duracionMs > 0 ? duracionMs / 1000 : null,
+                  // La eligió el usuario en la búsqueda: su vídeo no se revisa.
+                  manual: !!t.fuentes?.includes('manual'),
+                };
+              }
+              // Canción de fuera de la biblioteca (álbum o artista sin añadir): la referencia la da quien llama.
+              return tituloPista && artistaPista ? { titulo: tituloPista, artista: artistaPista, duracionS: null } : null;
             };
 
             if (typeof trackId !== 'string' || !trackId) {
@@ -558,7 +590,22 @@ function apiLocal(env) {
             // es permanente y nunca se revisaba). Ese era el fallo: el primer
             // error 150 envenenaba el track de por vida.
             if (Object.hasOwn(cache, trackId) && !descartados.includes(cache[trackId])) {
-              return res.end(JSON.stringify({ videoId: cache[trackId], cacheado: true }));
+              // Como en el móvil: lo guardado se revisa una vez, al ir a sonar, y se cambia si no era la canción.
+              let videoId = cache[trackId];
+              if (typeof videoId === 'string') {
+                try {
+                  videoId = await versionesPc.revisarGuardado({
+                    trackId,
+                    videoId,
+                    q,
+                    refDe: () => referenciaDeTrack(trackId),
+                    vetados: descartados,
+                  });
+                } catch (e) {
+                  console.warn(`[resolver] no se pudo revisar ${trackId}: ${e?.message ?? e}`);
+                }
+              }
+              return res.end(JSON.stringify({ videoId, cacheado: true }));
             }
 
             // Si ya hay una búsqueda igual en curso, se comparte en vez de duplicarla.
@@ -624,6 +671,8 @@ function apiLocal(env) {
                     : {};
                   actual[trackId] = videoId;
                   writeFileSync(cachePath, JSON.stringify(actual, null, 2), 'utf8');
+                  // Elegido ya con el criterio nuevo: no hace falta revisarlo al sonar.
+                  if (!viaApiOficial) versionesPc.marcarRevisado(trackId, videoId);
                 }
                 return { videoId, candidatos, viaApiOficial };
               })().finally(() => enVuelo.delete(trackId));
@@ -754,15 +803,14 @@ function apiLocal(env) {
           // (clasificar(), importado de scripts/lib/clasificar.mjs) y con el video YA
           // cacheado — vino de una búsqueda real, no hace falta resolverlo de nuevo.
           if (url.pathname === '/agregar-track' && req.method === 'POST') {
-            const { titulo, artista, videoId } = await leerCuerpo(req);
+            const { titulo, artista, videoId: videoIdCrudo, coverUrl } = await leerCuerpo(req);
             if (typeof titulo !== 'string' || !titulo.trim() || typeof artista !== 'string' || !artista.trim()) {
               res.statusCode = 400;
               return res.end(JSON.stringify({ error: 'titulo_y_artista_requeridos' }));
             }
-            if (typeof videoId !== 'string' || !videoId.trim()) {
-              res.statusCode = 400;
-              return res.end(JSON.stringify({ error: 'videoId_requerido' }));
-            }
+            // Sin vídeo también vale (corazón sobre una canción de álbum que aún no sonó): se resuelve al sonar.
+            const videoId = typeof videoIdCrudo === 'string' && videoIdCrudo.trim() ? videoIdCrudo.trim() : null;
+            const portadaDada = typeof coverUrl === 'string' && /^https?:\/\//.test(coverUrl) ? coverUrl : null;
 
             const tituloLimpio = limpiarTitulo(titulo.trim());
             const artistaLimpio = artista.trim();
@@ -798,10 +846,10 @@ function apiLocal(env) {
             // modo, mirar la descripción del video (ya se conoce el videoId,
             // vino de la búsqueda) por si el canal-sello dice el género en
             // texto (ver el vocabulario chico y por qué en clasificar.mjs).
-            if (ejesTrack.some((a) => a.ejeId === 'sin-clasificar')) {
+            if (videoId && ejesTrack.some((a) => a.ejeId === 'sin-clasificar')) {
               try {
                 const yt = await obtenerInnertube();
-                const info = await yt.getBasicInfo(videoId.trim());
+                const info = await yt.getBasicInfo(videoId);
                 const texto = `${info.basic_info.title ?? ''} ${info.basic_info.short_description ?? ''}`.toLowerCase();
                 const ejeId = clasificarPorDescripcionYoutube(texto);
                 if (ejeId) {
@@ -827,10 +875,12 @@ function apiLocal(env) {
 
             // El video ya se conoce (se eligió en la búsqueda) — cachearlo de una
             // evita gastar una resolución redundante la primera vez que suene.
-            const cachePath = join(dataDir, 'cache-youtube.json');
-            const cache = existsSync(cachePath) ? JSON.parse(readFileSync(cachePath, 'utf8')) : {};
-            cache[id] = videoId.trim();
-            escribirAtomico(cachePath, cache);
+            if (videoId) {
+              const cachePath = join(dataDir, 'cache-youtube.json');
+              const cache = existsSync(cachePath) ? JSON.parse(readFileSync(cachePath, 'utf8')) : {};
+              cache[id] = videoId;
+              escribirAtomico(cachePath, cache);
+            }
 
             // Portada/álbum en el momento del alta — ver enriquecerTrackDeezerUno
             // más arriba. Mismo archivo/esquema que usa el script por lotes
@@ -841,7 +891,10 @@ function apiLocal(env) {
               ? JSON.parse(readFileSync(dzMetaPath, 'utf8'))
               : { version: 1, tracks: {} };
             const datosDeezer = await enriquecerTrackDeezerUno(artistaLimpio, tituloLimpio);
-            dzMeta.tracks[id] = datosDeezer ?? { coverUrl: null, fotoArtista: null };
+            // Si Deezer no trae carátula, vale la que ya se veía al sonar (radio, álbum).
+            dzMeta.tracks[id] = datosDeezer
+              ? { ...datosDeezer, coverUrl: datosDeezer.coverUrl ?? portadaDada }
+              : { coverUrl: portadaDada, fotoArtista: null };
             escribirAtomico(dzMetaPath, dzMeta);
 
             return res.end(JSON.stringify({ ok: true, yaExistia: false, track: nuevo }));
@@ -1012,7 +1065,12 @@ function apiLocal(env) {
                 try {
                   const videoId = await buscarVideoIdConFallback(
                     `${fila.artista} ${tituloLimpio}`,
-                    env.YOUTUBE_API_KEY
+                    env.YOUTUBE_API_KEY,
+                    {
+                      titulo: tituloLimpio,
+                      artista: fila.artista,
+                      duracionS: fila.duracionMs > 0 ? fila.duracionMs / 1000 : null,
+                    }
                   );
                   if (!videoId) {
                     noEncontrados++;

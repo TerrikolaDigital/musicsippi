@@ -29,7 +29,7 @@ export function crearRevisorVersiones({ ahora = Date.now, topeMs = TOPE_ESPERA_M
   const enCurso = new Map();
   let pausaHasta = 0;
 
-  async function comprobar({ cacheado, ref, buscar, guardar }) {
+  async function comprobar({ cacheado, ref, buscar, guardar, elegir }) {
     let candidatos;
     try {
       candidatos = await buscar();
@@ -37,19 +37,21 @@ export function crearRevisorVersiones({ ahora = Date.now, topeMs = TOPE_ESPERA_M
       pausaHasta = ahora() + pausaMs;
       return cacheado.videoId;
     }
-    const videoId = mejorVersionParaRevisar(cacheado.videoId, candidatos, ref) ?? cacheado.videoId;
+    // `elegir` (PC): mismo papel que mejorVersionParaRevisar, con más datos del vídeo guardado.
+    const elegido = elegir ? await elegir(candidatos) : mejorVersionParaRevisar(cacheado.videoId, candidatos, ref);
+    const videoId = elegido ?? cacheado.videoId;
     await guardar({ trackId: cacheado.trackId, videoId, revision: REVISION_VERSIONES });
     return videoId;
   }
 
   return {
     /** @returns {Promise<string>} el videoId que debe sonar; la revisión nunca hace fallar la canción. */
-    async revisar({ cacheado, ref, intocable, buscar, guardar }) {
+    async revisar({ cacheado, ref, intocable, buscar, guardar, elegir }) {
       if (intocable || !ref || ref.manual || cacheado.origen === 'usuario' || yaRevisado(cacheado)) return cacheado.videoId;
       if (ahora() < pausaHasta) return cacheado.videoId;
       const clave = cacheado.trackId;
       if (!enCurso.has(clave)) {
-        const tarea = comprobar({ cacheado, ref, buscar, guardar })
+        const tarea = comprobar({ cacheado, ref, buscar, guardar, elegir })
           .catch(() => cacheado.videoId)
           .finally(() => enCurso.delete(clave));
         enCurso.set(clave, tarea);

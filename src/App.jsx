@@ -1208,6 +1208,12 @@ export default function App() {
   // sin carátula tengan la miniatura del vídeo como portada (el móvil la lee de su propia base de datos).
   const videoIdsPcRef = useRef({});
   videoIdsPcRef.current = metadataMB.videoIds ?? {};
+  // Escritorio: el vídeo de una canción también puede estar solo en la caché del PC (recién añadida desde la radio).
+  const videoIdsPc = metadataMB.videoIds;
+  const videoIdDeEscritorio = useCallback(
+    (t) => videoIdDeSinConexion(t) ?? videoIdsPc?.[t.id] ?? null,
+    [videoIdDeSinConexion, videoIdsPc]
+  );
   // Índice id → canción (se reconstruye solo si cambia la biblioteca): `metadataDe` se llama por cada fila de las listas.
   const tracksPorIdRef = useRef({ de: null, mapa: new Map() });
   const trackPorId = (trackId) => {
@@ -3083,6 +3089,7 @@ export default function App() {
     artistasBiblioteca,
     artistasDeEje,
     artistasSolos,
+    asegurarEnBiblioteca,
     asignarManual,
     avisoModosNuevos,
     avisoSalto,
@@ -3182,6 +3189,7 @@ export default function App() {
     tracksVisibles,
     tracksVista,
     verLetras,
+    videoIdDeEscritorio,
     vista,
     volumen,
     volverAtras,

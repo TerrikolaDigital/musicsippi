@@ -67,3 +67,9 @@ test('una edición de radio sí es la misma canción que la de la biblioteca', (
   const radio = { id: 'deezer-1', artista: 'Rudimental', titulo: 'Sun Comes Up (feat. James Arthur) (Radio Edit)' };
   assert.equal(esLaQueSuena(biblioteca, radio), true);
 });
+
+test('una canción de la radio es la misma que su copia de la biblioteca', () => {
+  const radio = { id: 'radio-abc12345678', titulo: 'Polly', artista: 'Nirvana', youtubeVideoId: 'abc12345678' };
+  assert.equal(esLaQueSuena(radio, { id: 'c4fa69df72f4', titulo: 'Polly', artista: 'Nirvana' }), true);
+  assert.equal(esLaQueSuena(radio, { id: 'c4fa69df72f5', titulo: 'Lithium', artista: 'Nirvana' }), false);
+});

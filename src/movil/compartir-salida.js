@@ -51,9 +51,11 @@ export function textoCompartir({ tipo, titulo, artista, album, videoId, modo }, 
   return `${frase}${contexto}\n${enlace}\n${FIRMA}`;
 }
 
-// Enlaces fijos a la última versión (cada versión se sube también con este nombre).
-const DESCARGA_ANDROID = 'https://github.com/TerrikolaDigital/musicsippi-android/releases/latest/download/Musicsippi.apk';
-const DESCARGA_WINDOWS = 'https://github.com/TerrikolaDigital/musicsippi/releases/latest/download/Musicsippi-Setup.exe';
+// Enlaces fijos a la última versión: no llevan número, así que no cambian al publicar.
+// Solo responden si CADA release lleva un archivo con este nombre exacto: el APK lo genera
+// scripts/publicar-version.mjs y `npm run comprobar-descargas` avisa si falta alguno.
+export const DESCARGA_ANDROID = 'https://github.com/TerrikolaDigital/musicsippi-android/releases/latest/download/Musicsippi.apk';
+export const DESCARGA_WINDOWS = 'https://github.com/TerrikolaDigital/musicsippi/releases/latest/download/Musicsippi-Setup.exe';
 
 /** Texto de Ajustes › «Compartir Musicsippi»: lo comparte cualquiera que tenga la app. */
 export function textoCompartirApp() {

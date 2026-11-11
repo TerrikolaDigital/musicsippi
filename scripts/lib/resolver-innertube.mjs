@@ -12,6 +12,7 @@ import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { resolverDataDir } from './data-dir.mjs';
 import { obtenerCampo } from './contratos-externos.mjs';
+import { elegirVideoDeBusqueda } from './versiones-pc.mjs';
 
 const esperar = (ms) => new Promise((res) => setTimeout(res, ms));
 
@@ -69,7 +70,20 @@ export async function resolverPendientes(tracks, cache, { onProgreso, esperaMs =
   for (const [i, t] of tracks.entries()) {
     try {
       const r = await yt.search(t.youtubeQuery, { type: 'video' });
-      const video = r.videos?.[0] ?? null;
+      // El más fiel de los resultados, no el primero: el primero dejaba vídeos que no eran la canción
+      // (59 de 190 en el lote del 9-nov) y su miniatura acababa de portada.
+      const videos = (r.videos ?? []).filter((v) => v.id);
+      const elegido = elegirVideoDeBusqueda(
+        videos.map((v) => ({
+          videoId: v.id,
+          tipo: 'video',
+          titulo: v.title?.text ?? String(v.title ?? ''),
+          artistas: [v.author?.name].filter(Boolean),
+          duracion: Number(v.duration?.seconds ?? 0),
+        })),
+        t
+      );
+      const video = videos.find((v) => v.id === elegido?.videoId) ?? null;
       const videoId = video?.id ?? null;
       if (videoId) {
         cache[t.id] = videoId;

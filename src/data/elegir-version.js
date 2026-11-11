@@ -165,3 +165,22 @@ export function mejorVersionParaRevisar(guardado, candidatos, ref) {
   const mejor = ordenarPorParecido(candidatos, ref)[0];
   return mejor && nivelDeVersion(mejor, ref) === NIVEL_FIEL ? mejor.videoId : null;
 }
+
+// Por debajo de esto el título del vídeo no es otra versión de la canción: es otra cosa.
+const SIMILITUD_AJENA = 0.4;
+
+/**
+ * Como `mejorVersionParaRevisar`, pero conociendo los datos del vídeo guardado (`guardada`, un
+ * candidato más). El PC puede pedírselos a YouTube; el móvil solo los tiene si sale en la búsqueda.
+ * Si el guardado no tiene nada que ver con la canción (el lote del PC tomaba el primer resultado)
+ * y hay algo con su título, se cambia aunque sea de otro artista. Con el mismo título no se toca:
+ * ahí sigue sin saberse si el guardado es peor.
+ */
+export function mejorVersionSabiendoLaGuardada(guardada, candidatos, ref) {
+  const otros = candidatos.filter((c) => c.videoId !== guardada.videoId);
+  const fiel = mejorVersionParaRevisar(guardada.videoId, [guardada, ...otros], ref);
+  if (fiel) return fiel;
+  if (analizar(guardada, ref).similitud >= SIMILITUD_AJENA) return null;
+  const mejor = ordenarPorParecido(otros, ref)[0];
+  return mejor && nivelDeVersion(mejor, ref) <= NIVEL_OTRO_ARTISTA ? mejor.videoId : null;
+}

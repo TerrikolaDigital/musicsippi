@@ -9,6 +9,7 @@ import { esAndroid } from '../../data/nativo-movil.js';
 import { marcarBienvenidaVista } from './estado-bienvenida.js';
 import { PASOS, pasoPorGesto, pasoValido } from './bienvenida.js';
 import { Contigo, Empieza, Modos, Portada, Sinfin, Traer } from './IlustracionesBienvenida.jsx';
+import './bienvenida.css';
 
 const sinMovimiento = () => !!window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
 

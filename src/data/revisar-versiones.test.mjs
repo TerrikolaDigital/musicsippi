@@ -97,3 +97,23 @@ test('lo revisado en la versión 1 sigue fijado frente al PC, pero se vuelve a r
   assert.equal(r, 'bueno');
   assert.equal(guardados.length, 1);
 });
+
+test('con `elegir` propio (PC) decide ese criterio y recibe los candidatos de la búsqueda', async () => {
+  const vistos = [];
+  const { guardados, base } = preparar({
+    buscar: async () => [cover],
+    elegir: async (candidatos) => {
+      vistos.push(candidatos.map((c) => c.videoId));
+      return 'otro';
+    },
+  });
+  assert.equal(await crearRevisorVersiones().revisar(base), 'otro');
+  assert.deepEqual(vistos, [['cover']]);
+  assert.deepEqual(guardados, [{ trackId: 't1', videoId: 'otro', revision: REVISION_VERSIONES }]);
+});
+
+test('si `elegir` no propone nada se conserva el vídeo y queda revisado', async () => {
+  const { guardados, base } = preparar({ elegir: async () => null });
+  assert.equal(await crearRevisorVersiones().revisar(base), 'cover');
+  assert.deepEqual(guardados, [{ trackId: 't1', videoId: 'cover', revision: REVISION_VERSIONES }]);
+});

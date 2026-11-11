@@ -16,8 +16,14 @@ export function avisarReproduciendo(sesionId) {
   });
 }
 
-export async function resolverVideoId(query, trackId) {
-  const r = await fetch(`/api/resolver?q=${encodeURIComponent(query)}&trackId=${trackId}`);
+// `pista`: título y artista de una canción que no está en la biblioteca (álbum o artista sin añadir);
+// sin ellos el servidor no puede comprobar que el vídeo sea esa canción.
+export async function resolverVideoId(query, trackId, pista = null) {
+  const extra =
+    pista?.titulo && pista?.artista
+      ? `&titulo=${encodeURIComponent(pista.titulo)}&artista=${encodeURIComponent(pista.artista)}`
+      : '';
+  const r = await fetch(`/api/resolver?q=${encodeURIComponent(query)}&trackId=${encodeURIComponent(trackId)}${extra}`);
   return r.json();
 }
 

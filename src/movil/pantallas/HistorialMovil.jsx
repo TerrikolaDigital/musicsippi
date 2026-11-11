@@ -2,6 +2,7 @@
 // Historial de reproducciones agrupado por día. Si la canción ya no está en la
 // biblioteca (sonó desde una vista previa o un álbum) se usa la copia de
 // título/artista guardada al sonar.
+import { crearMetaDeFuera } from '../portadasDeFuera.js';
 import { useMemo, useState } from 'react';
 import { IconoM } from '../iconos.jsx';
 import FilaCancion from '../FilaCancion.jsx';
@@ -38,21 +39,8 @@ export default function HistorialMovil({ ctx, nav }) {
       .filter(Boolean);
   }, [ctx.historial, ctx.tracks]);
 
-  // Canciones de fuera de la biblioteca (vistas previas, radio): la entrada no guardó carátula, así que se busca la de
-  // la misma canción en la biblioteca y, si no, la miniatura del vídeo. Nunca iniciales si hay alguna.
-  const portadaPorCancion = useMemo(() => {
-    const clave = (t) => `${String(t.titulo ?? '').trim().toLowerCase()}|${String(t.artista ?? '').trim().toLowerCase()}`;
-    const m = new Map();
-    for (const t of ctx.tracks) {
-      const url = ctx.metadataDe(t.trackIdReal ?? t.id)?.coverUrl ?? t.coverUrl;
-      if (typeof url === 'string' && url.startsWith('http') && !m.has(clave(t))) m.set(clave(t), url);
-    }
-    return (t) => m.get(clave(t)) ?? null;
-  }, [ctx.tracks, ctx.metadataDe]);
-  const metaDeFuera = (track) => ({
-    coverUrl: track.coverUrl ?? portadaPorCancion(track),
-    coverRespaldo: ctx.metadataDe(track.trackIdReal ?? track.id)?.coverRespaldo ?? null,
-  });
+  // Canciones de fuera de la biblioteca: carátula de la misma canción en la biblioteca o miniatura del vídeo (compartido con el escritorio).
+  const metaDeFuera = useMemo(() => crearMetaDeFuera({ tracks: ctx.tracks, metadataDe: ctx.metadataDe }), [ctx.tracks, ctx.metadataDe]);
 
   const { cuantas, centinela } = useTramos(entradas.length, entradas.length);
   const visibles = useMemo(() => entradas.slice(0, cuantas), [entradas, cuantas]);

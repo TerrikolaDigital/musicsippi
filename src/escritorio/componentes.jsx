@@ -15,7 +15,11 @@ import OlaProgreso from '../movil/OlaProgreso.jsx';
 import { inicialesDe as inicialesLimpias } from '../movil/iniciales.js';
 import { respaldoDeUrl } from '../movil/respaldoPortadas.js';
 import { esPortadaGenerica } from '../movil/portadaPlaceholder.js';
+import { conTamano } from '../movil/tamanoPortada.js';
+import { portadaGenerada } from '../movil/portadaGenerada.js';
+import { crearMetaDeFuera } from '../movil/portadasDeFuera.js';
 import { IconoC } from './iconosCorriente.jsx';
+import AyudaEscritorio from './AyudaEscritorio.jsx';
 import { fotoEsValida, colorDeArtista, Icono, separarArtistas, Ayuda, Escribinos, EditorEjes, SincronizacionMovil, AcercaDe } from './compartido.jsx';
 
 
@@ -86,6 +90,7 @@ export function FotoOIniciales({
   onClick,
   style,
   respaldos,
+  tam,
 }) {
   // Prueba en orden: la foto, sus respaldos (p. ej. otras portadas del álbum) y el respaldo global de esa
   // carátula (miniatura del vídeo, ver respaldoPortadas.js). Una que no carga o es la carátula gris genérica de
@@ -94,6 +99,24 @@ export function FotoOIniciales({
   const candidatas = [foto, ...(respaldos ?? []), respaldoDeUrl(foto)].filter((u, i, a) => fotoEsValida(u) && a.indexOf(u) === i);
   const src = candidatas.find((u) => !fallos.includes(u)) ?? null;
   const marcarFallo = (u) => setFallos((f) => (f.includes(u) ? f : [...f, u]));
+  // Una imagen que falla se reintenta una vez a los 900 ms (como PortadaImg del móvil) antes de pasar al respaldo.
+  const [version, setVersion] = useState(0);
+  const [esperando, setEsperando] = useState(false);
+  const reintentadas = useRef(new Set());
+  const temporizador = useRef(null);
+  useEffect(() => () => clearTimeout(temporizador.current), []);
+  const alFallar = (u) => {
+    if (!reintentadas.current.has(u)) {
+      reintentadas.current.add(u);
+      setEsperando(true);
+      temporizador.current = setTimeout(() => {
+        setEsperando(false);
+        setVersion((v) => v + 1);
+      }, 900);
+      return;
+    }
+    marcarFallo(u);
+  };
   useEffect(() => {
     let vigente = true;
     if (src) esPortadaGenerica(src).then((gris) => vigente && gris && marcarFallo(src));
@@ -104,22 +127,24 @@ export function FotoOIniciales({
   if (src) {
     return (
       <img
-        key={src}
+        key={`${src}-${version}`}
         className={className}
-        src={src}
+        src={conTamano(src, tam)}
         alt=""
         loading={loading}
-        onError={() => marcarFallo(src)}
+        onError={() => alFallar(src)}
         onClick={onClick}
-        style={style}
+        style={esperando ? { ...style, visibility: 'hidden' } : style}
       />
     );
   }
   if (!claseVacia) return inicialesDe(nombreIniciales);
+  // Misma paleta que la portada de reserva del móvil (portadaGenerada): degradado de dos colores estable por nombre.
+  const { color, color2 } = portadaGenerada(nombreColor);
   return (
     <span
       className={claseVacia}
-      style={{ background: colorDeArtista(nombreColor), ...style }}
+      style={{ background: `radial-gradient(120% 90% at 18% 12%, rgb(255 255 255 / 0.3), transparent 58%), linear-gradient(145deg, ${color}, ${color2})`, textShadow: '0 1px 4px rgb(0 0 0 / 0.4)', ...style }}
       aria-hidden="true"
       onClick={onClick}
     >
@@ -803,7 +828,7 @@ export function ClasificacionAsistida({
           >
             {previewEstado === 'cargando' ? '…' : previewEstado === 'sonando' ? '❚❚' : '▶'}
           </button>
-          <Portada coverUrl={metaActual.coverUrl} nombreFallback={metaActual.album || trackActual.titulo} />
+          <Portada coverUrl={metaActual.coverUrl} respaldo={metaActual.coverRespaldo} nombreFallback={metaActual.album || trackActual.titulo} />
           <span className="clasificacion-asistida-track-texto">
             <span>
               {trackActual.artista} · {trackActual.titulo}
@@ -951,6 +976,8 @@ export function BarraReproductor({
   metadata,
   favorito,
   onFavorito,
+  guardada,
+  onAsegurar,
   onAbrirCola,
   cola,
   indice,
@@ -970,39 +997,35 @@ export function BarraReproductor({
 }) {
   const [guardandoFavorito, setGuardandoFavorito] = useState(false);
 
+  // Canción de fuera de la biblioteca (radio, álbum o artista sin añadir, vista previa): no hay copia
+  // guardada. Antes se decidía por el prefijo del id y las de la radio (`radio-…`) se colaban: su
+  // corazón pegaba contra un id que el servidor no conoce (404 en silencio) y no guardaba nada.
+  const deFuera = !guardada;
+  const [estadoAgregar, setEstadoAgregar] = useState({ id: null, estado: null });
+  const estadoAgregarActual = estadoAgregar.id === track.id ? estadoAgregar.estado : null;
+
+  // Como en el móvil: el corazón guarda antes la canción si hace falta y marca su copia de la biblioteca.
   async function clickFavorito() {
     setGuardandoFavorito(true);
     try {
-      await onFavorito(track.id, !favorito);
+      if (guardada) await onFavorito(guardada.id, !favorito);
+      else {
+        const real = await onAsegurar(track);
+        await onFavorito(real.id, true);
+      }
+      setEstadoAgregar({ id: null, estado: null });
     } catch {
-      // Silencioso a propósito: es un botón de un solo símbolo sin lugar para
-      // mostrar un error de texto. Si falla, el corazón simplemente no
-      // cambia — el usuario lo nota y puede reintentar.
+      // El corazón no tiene sitio para un texto: el aviso sale al lado, donde va «Agregada».
+      setEstadoAgregar({ id: track.id, estado: 'error' });
     } finally {
       setGuardandoFavorito(false);
     }
   }
 
-  // Track "de mentira" (vista previa del buscador externo, o de un álbum que
-  // todavía no está en la biblioteca) — mismo criterio que esSintetico en
-  // Reproductor/enBiblioteca en FichaTrack. El corazón normal pegaría contra
-  // un trackId que el servidor no conoce (404 en silencio), así que se
-  // ofrece agregar a la biblioteca en su lugar, mismo patrón que la cola.
-  const esSintetico = String(track.id).startsWith('preview-') || String(track.id).startsWith('album-');
-  const [estadoAgregar, setEstadoAgregar] = useState({ id: null, estado: null });
-  const estadoAgregarActual = estadoAgregar.id === track.id ? estadoAgregar.estado : null;
-
-  async function agregarActualDesdePreview(conFavorito) {
+  async function agregarActual() {
     setEstadoAgregar({ id: track.id, estado: 'agregando' });
     try {
-      const json = await onAgregarExterno({
-        titulo: track.titulo,
-        artista: track.artista,
-        videoId: track.youtubeVideoId,
-      });
-      if (conFavorito && json.track?.id) {
-        await onFavorito(json.track.id, true);
-      }
+      await onAsegurar(track);
       setEstadoAgregar({ id: track.id, estado: 'ok' });
     } catch {
       setEstadoAgregar({ id: track.id, estado: 'error' });
@@ -1069,45 +1092,35 @@ export function BarraReproductor({
             </span>
           )}
         </div>
-        {esSintetico ? (
-          estadoAgregarActual === 'ok' ? (
-            <span className="c-preview-estado" title="Agregada a tu biblioteca">✓ Agregada</span>
-          ) : estadoAgregarActual === 'error' ? (
-            <span className="c-preview-estado c-preview-error" title="No se pudo agregar">Error</span>
-          ) : (
-            <span className="barra-agregar">
-              <button
-                className="ctl"
-                onClick={() => agregarActualDesdePreview(true)}
-                disabled={estadoAgregarActual === 'agregando'}
-                title="Agregar a mi biblioteca y a me gusta"
-                aria-label="Agregar a mi biblioteca y a me gusta"
-              >
-                <IconoC nombre="corazon" tamano={19} />
-              </button>
-              <button
-                className="ctl"
-                onClick={() => agregarActualDesdePreview(false)}
-                disabled={estadoAgregarActual === 'agregando'}
-                title="Agregar a mi biblioteca"
-                aria-label="Agregar a mi biblioteca"
-              >
-                {estadoAgregarActual === 'agregando' ? '…' : <IconoC nombre="anadir" tamano={19} />}
-              </button>
-            </span>
-          )
-        ) : (
+        <span className="barra-agregar">
           <button
             className={favorito ? 'ctl barra-megusta activo' : 'ctl barra-megusta'}
             onClick={clickFavorito}
-            disabled={guardandoFavorito}
+            disabled={guardandoFavorito || estadoAgregarActual === 'agregando'}
             aria-pressed={favorito}
-            title={favorito ? 'Quitar de me gusta' : 'Agregar a me gusta'}
-            aria-label={favorito ? 'Quitar de me gusta' : 'Agregar a me gusta'}
+            title={favorito ? 'Quitar de me gusta' : deFuera ? 'Agregar a mi biblioteca y a me gusta' : 'Agregar a me gusta'}
+            aria-label={favorito ? 'Quitar de me gusta' : deFuera ? 'Agregar a mi biblioteca y a me gusta' : 'Agregar a me gusta'}
           >
             <IconoC nombre="corazon" tamano={19} relleno={favorito} />
           </button>
-        )}
+          {deFuera && estadoAgregarActual !== 'error' && (
+            <button
+              className="ctl"
+              onClick={agregarActual}
+              disabled={guardandoFavorito || estadoAgregarActual === 'agregando'}
+              title="Agregar a mi biblioteca"
+              aria-label="Agregar a mi biblioteca"
+            >
+              {estadoAgregarActual === 'agregando' ? '…' : <IconoC nombre="anadir" tamano={19} />}
+            </button>
+          )}
+          {!deFuera && estadoAgregarActual === 'ok' && (
+            <span className="c-preview-estado" title="Agregada a tu biblioteca">✓ Agregada</span>
+          )}
+          {estadoAgregarActual === 'error' && (
+            <span className="c-preview-estado c-preview-error" title="No se pudo guardar">Error</span>
+          )}
+        </span>
       </div>
 
       <div className="barra-centro">
@@ -1506,7 +1519,7 @@ export function FichaTrack({ track, ejesTrack, ejes, metadata, onGuardarOverride
   // se agregó a la biblioteca no se puede borrar — mismo criterio que
   // esSintetico en Reproductor. Si el track viene de ahí, no se ofrece la
   // acción.
-  const enBiblioteca = !String(track.id).startsWith('preview-') && !String(track.id).startsWith('album-');
+  const enBiblioteca = !/^(preview-|album-|radio-)/.test(String(track.id));
   const [quitando, setQuitando] = useState(false);
 
   async function quitarDeLaBiblioteca() {
@@ -2581,10 +2594,10 @@ export function TarjetaModo({
  * del artista), para que dos álbumes distintos del mismo artista igual se
  * distingan de un vistazo.
  */
-export function Portada({ coverUrl, nombreFallback }) {
+export function Portada({ coverUrl, respaldo, nombreFallback }) {
   return (
     <span className="c-portada" aria-hidden="true">
-      <FotoOIniciales foto={coverUrl} nombre={nombreFallback} claseVacia="c-portada-vacia" />
+      <FotoOIniciales foto={coverUrl} respaldos={[respaldo]} tam={120} nombre={nombreFallback} claseVacia="c-portada-vacia" />
     </span>
   );
 }
@@ -2761,6 +2774,7 @@ export function Reproductor({
   // acá mismo, sin volver al buscador, para poder decidir mientras se
   // escucha. trackId -> 'agregando' | 'ok' | 'error'.
   const [estadosPreview, setEstadosPreview] = useState({});
+  const idsBiblioteca = useMemo(() => new Set(tracks.map((t) => t.id)), [tracks]);
 
   async function agregarDesdePreview(track, favorito = false) {
     setEstadosPreview((s) => ({ ...s, [track.id]: 'agregando' }));
@@ -2889,7 +2903,8 @@ export function Reproductor({
     // MenuListas/FichaTrack o el corazón de me gusta pegaría contra un
     // trackId que el servidor no conoce (404). Se les ofrece agregar a la
     // biblioteca en su lugar, mismo botón para ambos casos.
-    const esSintetico = f.track.id.startsWith('preview-') || f.track.id.startsWith('album-');
+    // Por pertenencia real y no por prefijo: las de la radio (`radio-…`) tampoco están en la biblioteca.
+    const esSintetico = !idsBiblioteca.has(f.track.id);
     const puedeReordenar = esActiva && !vistaModificada;
     return (
       <li
@@ -2927,7 +2942,7 @@ export function Reproductor({
             : undefined
         }
       >
-        <Portada coverUrl={f.meta.coverUrl} nombreFallback={f.meta.album || f.track.titulo} />
+        <Portada coverUrl={f.meta.coverUrl} respaldo={f.meta.coverRespaldo} nombreFallback={f.meta.album || f.track.titulo} />
         <button className="c-play" onClick={() => clickFila(f)} title="Reproducir" aria-label="Reproducir">
           {esActual ? '♪' : '▶'}
         </button>
@@ -3364,7 +3379,7 @@ export function ListaTracks({
             const sonando = t.id === trackActualId;
             return (
               <li key={t.id} className={sonando ? 'actual' : ''}>
-                <Portada coverUrl={meta.coverUrl} nombreFallback={meta.album || t.titulo} />
+                <Portada coverUrl={meta.coverUrl} respaldo={meta.coverRespaldo} nombreFallback={meta.album || t.titulo} />
                 <button
                   className="c-play"
                   onClick={() => onReproducir(t, filas, etiqueta)}
@@ -4329,6 +4344,15 @@ export function Historial({
       .filter(Boolean);
   }, [historial, tracks]);
 
+  const metaDeFuera = useMemo(() => crearMetaDeFuera({ tracks, metadataDe }), [tracks, metadataDe]);
+  // Canciones de fuera de la biblioteca: sin carátula propia, usa la de la misma canción o la miniatura del vídeo.
+  const metaDeEntrada = (e) => {
+    const base = metadataDe(e.trackId);
+    if (!e.sintetico) return base;
+    const f = metaDeFuera(e.track);
+    return { ...base, coverUrl: f.coverUrl ?? base.coverUrl, coverRespaldo: f.coverRespaldo ?? base.coverRespaldo };
+  };
+
   const recientes = entradas.slice(0, 200);
 
   const rankingTracks = useMemo(() => {
@@ -4395,10 +4419,10 @@ export function Historial({
             <ol className="cola cola-historial">
               {recientes.map((e, i) => {
                 const sonando = e.trackId === trackActualId;
-                const meta = metadataDe(e.trackId);
+                const meta = metaDeEntrada(e);
                 return (
                 <li key={`${e.trackId}-${e.ts}-${i}`} className={sonando ? 'actual' : ''}>
-                  <Portada coverUrl={meta.coverUrl} nombreFallback={meta.album || e.track.titulo} />
+                  <Portada coverUrl={meta.coverUrl} respaldo={meta.coverRespaldo} nombreFallback={meta.album || e.track.titulo} />
                   <button
                     className="c-play"
                     onClick={() => onReproducir(e.track, recientes.map((r) => r.track), 'Historial')}
@@ -4487,10 +4511,10 @@ export function Historial({
               <ol className="cola">
                 {rankingTracks.map((r) => {
                   const sonando = r.track.id === trackActualId;
-                  const meta = metadataDe(r.track.id);
+                  const meta = metaDeEntrada({ trackId: r.track.id, track: r.track, sintetico: r.sintetico });
                   return (
                   <li key={r.track.id} className={sonando ? 'actual' : ''}>
-                    <Portada coverUrl={meta.coverUrl} nombreFallback={meta.album || r.track.titulo} />
+                    <Portada coverUrl={meta.coverUrl} respaldo={meta.coverRespaldo} nombreFallback={meta.album || r.track.titulo} />
                     <button
                       className="c-play"
                       onClick={() => onReproducir(r.track, rankingTracks.map((x) => x.track), 'Más sonadas')}
@@ -4658,13 +4682,14 @@ export function Administrar({
 
         <div className="config-contenido">
       {tab === 'ayuda' && (
-        <Ayuda
+        <AyudaEscritorio
           onVerOnboarding={onVerOnboarding}
           onIrACargar={() => setTab('cargar')}
           onIrAModos={() => setTab('modos')}
-          onIrABuscar={onIrABuscar}
           onIrAExplorar={onIrAExplorar}
           onIrAInicio={onIrAInicio}
+          onIrAMovil={() => setTab('movil')}
+          onIrABackup={() => setTab('backup')}
         />
       )}
       {tab === 'escribinos' && <Escribinos />}
