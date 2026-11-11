@@ -3,6 +3,7 @@
   "version": "0.2.1",
   "description": "Reproductor personal por modos de escucha, sobre tu propia biblioteca.",
   "author": "@terrikoladigital",
+  "license": "GPL-3.0-or-later",
   "private": true,
   "type": "module",
   "main": "electron/main.cjs",
