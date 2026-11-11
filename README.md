@@ -18,6 +18,17 @@ de desarrollo. **No incluye `data/`** (la biblioteca personal, el historial de e
 las cachés), así que para compilar o arrancar en modo desarrollo hay que crear antes una
 carpeta `data/` con al menos `ejes.json` y `biblioteca.json` (ver `docs/modelo-datos.md`).
 
+## Licencia
+
+Musicsippi es software libre: Copyright (c) 2026 TerrikolaDigital, publicado bajo la
+[GNU General Public License v3.0](LICENSE.txt) o, a tu elección, cualquier versión
+posterior. Puedes usarlo, estudiarlo, modificarlo y redistribuirlo; si distribuyes una
+versión modificada, tiene que publicarse bajo la misma licencia y con su código fuente.
+Se entrega sin garantía de ningún tipo.
+
+La licencia cubre el código de la aplicación. La música no forma parte de este
+repositorio: es de sus autores y suena desde YouTube.
+
 ## Cómo funciona
 
 Reproductor por **modos de escucha**: ejes editables sobre una biblioteca
